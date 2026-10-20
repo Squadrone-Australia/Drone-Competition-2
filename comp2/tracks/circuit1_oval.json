@@ -1,0 +1,15 @@
+{
+  "name": "Circuit 1 - Oval",
+  "description": "Level 1: one smooth oval lap through Gates 1, 2 and 3, back to the pad.",
+  "difficulty": 1.0,
+  "arena": {"width_m": 6.0, "depth_m": 4.0, "height_m": 3.0},
+  "takeoff": [3.0, 3.0],
+  "takeoff_heading_deg": 270.0,
+  "landing": [3.0, 3.0],
+  "t_ref_s": 25.0,
+  "gates": [
+    {"x": 1.0, "y": 3.0, "z": 2.0, "yaw_deg": 270},
+    {"x": 3.0, "y": 1.0, "z": 1.5, "yaw_deg": 90},
+    {"x": 5.0, "y": 3.0, "z": 1.0, "yaw_deg": 270}
+  ]
+}

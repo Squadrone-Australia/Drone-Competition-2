@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Squadrone Drone Racer</title>
+  <meta name="color-scheme" content="dark">
+  <link rel="icon" href="assets/squadrone-logo.webp">
+  <link rel="stylesheet" href="style.css?v=20261020-2">
+  <script type="importmap">
+    { "imports": { "three": "./vendor/three.module.min.js" } }
+  </script>
+</head>
+<body>
+  <header>
+    <div class="brand">
+      <img class="brand-logo" src="assets/squadrone-logo.webp" alt="Squadrone" width="520" height="181">
+      <span class="brand-sub">Drone Racer</span>
+    </div>
+
+    <div class="flight-actions" aria-label="Flight safety controls">
+      <button id="stop">Stop</button>
+      <button id="reset" title="Simulator: return to the takeoff pad. Real drone: clear the race without moving the aircraft.">Reset</button>
+    </div>
+
+    <div class="hud">
+      <span id="status" class="status">connecting...</span>
+      <span id="python-client" class="status client-status">IDE disconnected</span>
+      <span class="telemetry" aria-label="Race telemetry">
+        <span class="micro">elapsed</span>
+        <span id="race-clock">0.00 s</span>
+        <span class="micro">gate</span>
+        <span id="race-summary">- / -</span>
+      </span>
+      <span id="drone-mode" class="drone-mode">Drone: simulator</span>
+      <button id="use-tello" title="Connect to a real DJI Tello" disabled>Use real Tello</button>
+      <button id="reconnect-drone" title="Reconnect to the real Tello - use after rebooting it or rejoining its Wi-Fi" hidden>Reconnect</button>
+    </div>
+
+    <button id="estop" class="estop">Emergency stop</button>
+  </header>
+
+  <main id="cockpit">
+    <div id="visual-deck">
+      <section id="stage" class="panel" aria-labelledby="stage-title">
+        <div id="stage-bar" class="panel-bar">
+          <span id="stage-title" class="bar-title">3D arena</span>
+          <div id="view-tools" aria-label="3D camera controls">
+            <button data-mode="follow" class="on" title="Third-person camera that follows the drone">Third person</button>
+            <button data-mode="orbit" title="Drag to look around, scroll to zoom">Orbit</button>
+            <button data-mode="topdown" title="Whole cage from above">Map</button>
+            <button id="trail" class="on" title="Show the racing line flown">Trail</button>
+          </div>
+        </div>
+        <div id="view3d">
+          <p id="stage-empty" hidden>3D arena is available in simulator mode.</p>
+        </div>
+      </section>
+
+      <figure id="camera-panel" class="panel" aria-labelledby="camera-title">
+        <figcaption class="panel-bar">
+          <span id="camera-title" class="bar-title">Drone camera</span>
+          <span id="camera-state" class="camera-state"><span class="dot"></span><span>waiting for frames</span></span>
+        </figcaption>
+        <div class="camera-viewport">
+          <img id="video" alt="Raw live view from the drone's onboard camera">
+        </div>
+        <p class="sensor-note">Raw sensor stream for your vision code</p>
+      </figure>
+    </div>
+
+    <div id="instrument-deck">
+      <section id="track-panel" class="panel" hidden aria-labelledby="track-title">
+        <div id="track-bar" class="panel-bar">
+          <span id="track-title" class="bar-title">Track plan</span>
+          <select id="track" title="Which published track to race"></select>
+          <span id="track-difficulty" title="Score multiplier for this track"></span>
+        </div>
+        <canvas id="track-plan"></canvas>
+        <p id="plan-note"></p>
+      </section>
+
+      <section id="arena-panel" class="panel" hidden aria-labelledby="arena-title">
+        <div id="arena-bar" class="panel-bar">
+          <span id="arena-title" class="bar-title">Arena</span>
+          <select id="arena-preset" title="A ready-made venue">
+            <option value="">custom</option>
+          </select>
+          <button id="arena-random" type="button" title="Draw one of everything">
+            Randomise
+          </button>
+        </div>
+        <div id="arena-controls"></div>
+        <label class="arena-row" for="arena-light-intensity">
+          Light strength
+          <input id="arena-light-intensity" type="range" min="0.2" max="2"
+                 step="0.05" value="1" />
+          <span id="arena-light-value" class="micro">1.00</span>
+        </label>
+        <p id="arena-note" class="micro"></p>
+      </section>
+
+      <section id="race-panel" class="panel" aria-labelledby="race-title">
+        <div id="race-bar" class="panel-bar">
+          <span id="race-title" class="bar-title">Race</span>
+          <span id="race-state">idle</span>
+          <span class="micro" id="race-legend">cm from gate centre</span>
+        </div>
+        <div id="race-gates"></div>
+        <div id="race-score" hidden>
+          <span class="s-label">smoothness</span><span id="s-smooth">-</span>
+          <span class="s-label">accuracy</span><span id="s-acc">-</span>
+          <span class="s-label">time</span><span id="s-time">-</span>
+          <span class="s-label total">total</span><span id="s-total" class="total">-</span>
+        </div>
+      </section>
+
+      <section id="console-panel" class="panel" aria-labelledby="console-title">
+        <div class="panel-bar">
+          <span id="console-title" class="bar-title">System log</span>
+        </div>
+        <pre id="console" aria-live="polite"></pre>
+      </section>
+    </div>
+  </main>
+
+  <footer id="sim-disclaimer">
+    The simulator can't perfectly reproduce the real world: code that runs well
+    here is not guaranteed to fly the same way on a physical drone.
+  </footer>
+
+  <script src="app.js?v=20261013-1"></script>
+  <script src="plan.js?v=20261001-1"></script>
+  <script src="arena.js?v=20261020-1"></script>
+  <script src="arena_layout.js?v=20260918-2"></script>
+  <script type="module" src="view3d.js?v=20261020-1"></script>
+</body>
+</html>

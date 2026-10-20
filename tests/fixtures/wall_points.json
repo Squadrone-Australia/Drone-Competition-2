@@ -1,0 +1,250 @@
+{
+  "comment": "Generated from comp2/sim/render.py's own wall table. The browser's 3D view must place the hall, its furniture and the spectators on exactly these points, or the operator sees a different room from the camera.",
+  "arena": {
+    "width_m": 6.0,
+    "depth_m": 4.0,
+    "height_m": 3.0
+  },
+  "cases": [
+    {
+      "wall": "north",
+      "u": 0.0,
+      "v": 0.0,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        0.0,
+        4.0,
+        0.0
+      ]
+    },
+    {
+      "wall": "north",
+      "u": 1.2,
+      "v": 2.1,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        1.2,
+        4.0,
+        2.1
+      ]
+    },
+    {
+      "wall": "north",
+      "u": 6.0,
+      "v": 3.0,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        6.0,
+        4.0,
+        3.0
+      ]
+    },
+    {
+      "wall": "north",
+      "u": 0.4,
+      "v": 0.9,
+      "out": 3.0,
+      "span": 6.0,
+      "point": [
+        0.4,
+        7.0,
+        0.9
+      ]
+    },
+    {
+      "wall": "north",
+      "u": 3.0,
+      "v": 1.5,
+      "out": 1.5,
+      "span": 6.0,
+      "point": [
+        3.0,
+        5.5,
+        1.5
+      ]
+    },
+    {
+      "wall": "south",
+      "u": 0.0,
+      "v": 0.0,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        6.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "wall": "south",
+      "u": 1.2,
+      "v": 2.1,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        4.8,
+        0.0,
+        2.1
+      ]
+    },
+    {
+      "wall": "south",
+      "u": 6.0,
+      "v": 3.0,
+      "out": 0.0,
+      "span": 6.0,
+      "point": [
+        0.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "wall": "south",
+      "u": 0.4,
+      "v": 0.9,
+      "out": 3.0,
+      "span": 6.0,
+      "point": [
+        5.6,
+        -3.0,
+        0.9
+      ]
+    },
+    {
+      "wall": "south",
+      "u": 3.0,
+      "v": 1.5,
+      "out": 1.5,
+      "span": 6.0,
+      "point": [
+        3.0,
+        -1.5,
+        1.5
+      ]
+    },
+    {
+      "wall": "east",
+      "u": 0.0,
+      "v": 0.0,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        6.0,
+        4.0,
+        0.0
+      ]
+    },
+    {
+      "wall": "east",
+      "u": 1.2,
+      "v": 2.1,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        6.0,
+        2.8,
+        2.1
+      ]
+    },
+    {
+      "wall": "east",
+      "u": 4.0,
+      "v": 3.0,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        6.0,
+        0.0,
+        3.0
+      ]
+    },
+    {
+      "wall": "east",
+      "u": 0.4,
+      "v": 0.9,
+      "out": 3.0,
+      "span": 4.0,
+      "point": [
+        9.0,
+        3.6,
+        0.9
+      ]
+    },
+    {
+      "wall": "east",
+      "u": 2.0,
+      "v": 1.5,
+      "out": 1.5,
+      "span": 4.0,
+      "point": [
+        7.5,
+        2.0,
+        1.5
+      ]
+    },
+    {
+      "wall": "west",
+      "u": 0.0,
+      "v": 0.0,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        0.0,
+        0.0,
+        0.0
+      ]
+    },
+    {
+      "wall": "west",
+      "u": 1.2,
+      "v": 2.1,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        0.0,
+        1.2,
+        2.1
+      ]
+    },
+    {
+      "wall": "west",
+      "u": 4.0,
+      "v": 3.0,
+      "out": 0.0,
+      "span": 4.0,
+      "point": [
+        0.0,
+        4.0,
+        3.0
+      ]
+    },
+    {
+      "wall": "west",
+      "u": 0.4,
+      "v": 0.9,
+      "out": 3.0,
+      "span": 4.0,
+      "point": [
+        -3.0,
+        0.4,
+        0.9
+      ]
+    },
+    {
+      "wall": "west",
+      "u": 2.0,
+      "v": 1.5,
+      "out": 1.5,
+      "span": 4.0,
+      "point": [
+        -1.5,
+        2.0,
+        1.5
+      ]
+    }
+  ]
+}

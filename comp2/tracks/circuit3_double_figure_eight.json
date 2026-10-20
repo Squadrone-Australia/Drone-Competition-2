@@ -1,0 +1,15 @@
+{
+  "name": "Circuit 3 - Double Figure Eight",
+  "description": "Level 3: a double figure eight with two path intersections. Cross all three gates eastbound, looping around the far sides of Gates 1 and 3 before returning to the pad.",
+  "difficulty": 1.5,
+  "arena": {"width_m": 6.0, "depth_m": 4.0, "height_m": 3.0},
+  "takeoff": [3.0, 3.0],
+  "takeoff_heading_deg": 270.0,
+  "landing": [3.0, 3.0],
+  "t_ref_s": 45.0,
+  "gates": [
+    {"x": 1.0, "y": 3.0, "z": 2.0, "yaw_deg": 90},
+    {"x": 3.0, "y": 1.0, "z": 1.5, "yaw_deg": 90},
+    {"x": 5.0, "y": 3.0, "z": 1.0, "yaw_deg": 90}
+  ]
+}

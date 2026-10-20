@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "comp2"
+version = "0.1.0"
+# numpy >= 2.5 rules out 3.11; CI verifies 3.13 and 3.14.
+requires-python = ">=3.13"
+dependencies = [
+    "fastapi>=0.140",
+    "uvicorn[standard]>=0.51",
+    "pydantic>=2.13",
+    "av>=18",
+    "opencv-python>=5.0",
+    "numpy>=2.5",
+    "websockets>=15",
+]
+
+[project.optional-dependencies]
+# ruff is pinned, not floored: a new release can change formatting, and the CI
+# format gate would then fail every open branch at once.
+dev = [
+    "pytest>=9",
+    "pytest-asyncio>=1.4",
+    "httpx>=0.28",
+    # tests/test_client.py imports the squadrone client, which needs Pillow.
+    "Pillow>=10",
+    "pyinstaller>=6.21",
+    "ruff==0.16.7",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]
+# ruff format owns code width; E501 only ever fires on comments, docstrings and
+# long string literals, none of which the formatter will wrap.
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+# close()/reset() are deliberate optional no-op hooks on the adapter ABC —
+# marking them @abstractmethod would force all three adapters to implement them.
+"comp2/drone/base.py" = ["B027"]
+
+[tool.setuptools.packages.find]
+where = [".", "client"]
+include = ["comp2*", "squadrone*"]

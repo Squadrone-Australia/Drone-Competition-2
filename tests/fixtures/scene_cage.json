@@ -1,0 +1,185 @@
+{
+  "name": "Circuit 1 - Oval",
+  "track": "circuit1_oval",
+  "arena": "cage",
+  "appearance": {
+    "name": "cage",
+    "floor": {
+      "colour": "#6e5049",
+      "grid": false,
+      "gloss": 0.45,
+      "plank_m": 0.18
+    },
+    "wall": {
+      "opaque": false,
+      "colour": "#c6ced6"
+    },
+    "net": {
+      "pitch_m": 0.02,
+      "colour": "#121212",
+      "opacity": 0.3
+    },
+    "hall": {
+      "depth_m": 3.0,
+      "wall_colour": "#b0b4b2",
+      "floor_colour": "#6e5049",
+      "props": [
+        {
+          "kind": "doorway",
+          "u": 1.2,
+          "v": 0.0,
+          "w": 0.95,
+          "h": 2.1,
+          "colour": "#f6f8f8"
+        },
+        {
+          "kind": "board",
+          "u": 3.6,
+          "v": 1.15,
+          "w": 1.1,
+          "h": 0.8,
+          "colour": "#919496"
+        },
+        {
+          "kind": "board",
+          "u": 5.2,
+          "v": 1.2,
+          "w": 0.7,
+          "h": 0.55,
+          "colour": "#969a9c"
+        },
+        {
+          "kind": "table",
+          "u": 4.4,
+          "v": 0.0,
+          "w": 1.5,
+          "h": 0.74,
+          "colour": "#e2e0de"
+        },
+        {
+          "kind": "table",
+          "u": 0.4,
+          "v": 0.0,
+          "w": 1.2,
+          "h": 0.74,
+          "colour": "#dad8d6"
+        },
+        {
+          "kind": "chair",
+          "u": 2.6,
+          "v": 0.0,
+          "w": 0.45,
+          "h": 0.85,
+          "colour": "#343030"
+        },
+        {
+          "kind": "chair",
+          "u": 6.0,
+          "v": 0.0,
+          "w": 0.45,
+          "h": 0.85,
+          "colour": "#302c2c"
+        },
+        {
+          "kind": "case",
+          "u": 5.6,
+          "v": 0.0,
+          "w": 0.55,
+          "h": 0.4,
+          "colour": "#2e2a28"
+        }
+      ]
+    },
+    "light": {
+      "wall": "north",
+      "u": 1.2,
+      "v": 0.0,
+      "w": 0.95,
+      "h": 2.1,
+      "colour": "#fafcfc",
+      "intensity": 1.0
+    },
+    "gate": {
+      "orange": "#ac3a28",
+      "dark": "#1e1c22",
+      "light": "#b8babe",
+      "print": "#c6c8c8",
+      "stand": "#a2a2a0",
+      "elbow": "#d2d0ce",
+      "string": "#d6d6d6",
+      "mount": "stand"
+    },
+    "crowd": [
+      {
+        "wall": "south",
+        "u": 3.648486374390159,
+        "stature": 1.5956479786298,
+        "shirt": "#3c5c2c",
+        "trousers": "#a0aab4",
+        "skin": "#7d5a46",
+        "standoff": 0.5646816674800447
+      },
+      {
+        "wall": "north",
+        "u": 5.861728801297273,
+        "stature": 1.7142313181666575,
+        "shirt": "#3c5c2c",
+        "trousers": "#406080",
+        "skin": "#cdaf96",
+        "standoff": 0.8965158684083703
+      }
+    ]
+  },
+  "tube_m": 0.02,
+  "string_m": 0.004,
+  "string_angle_deg": 30.0,
+  "ring": {
+    "orange_half_angle_deg": 40.0,
+    "checker_rows": 4
+  },
+  "width_m": 6.0,
+  "depth_m": 4.0,
+  "height_m": 3.0,
+  "start": [
+    3.0,
+    3.0
+  ],
+  "finish": [
+    3.0,
+    3.0
+  ],
+  "start_heading_deg": 270.0,
+  "difficulty": 1.0,
+  "t_ref_s": 25.0,
+  "weights": {
+    "smoothness": 0.4,
+    "accuracy": 0.3,
+    "time": 0.3
+  },
+  "gates": [
+    {
+      "x": 1.0,
+      "y": 3.0,
+      "z": 2.0,
+      "yaw_deg": 270.0,
+      "diameter_m": 0.7,
+      "opening_diameter_m": 0.5
+    },
+    {
+      "x": 3.0,
+      "y": 1.0,
+      "z": 1.5,
+      "yaw_deg": 90.0,
+      "diameter_m": 0.7,
+      "opening_diameter_m": 0.5
+    },
+    {
+      "x": 5.0,
+      "y": 3.0,
+      "z": 1.0,
+      "yaw_deg": 270.0,
+      "diameter_m": 0.7,
+      "opening_diameter_m": 0.5
+    }
+  ]
+}
