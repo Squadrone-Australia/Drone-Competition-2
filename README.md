@@ -27,12 +27,15 @@ with it is the competition.
 
 ## Quick start
 
-Install [Python 3.13+](https://www.python.org/downloads/) (on Windows, tick
-_"Add python.exe to PATH"_), then create a virtualenv, install the app and run
-it. The app opens in your browser.
+Install [Git](https://git-scm.com/downloads) and
+[Python 3.13+](https://www.python.org/downloads/) (on Windows, tick _"Add
+python.exe to PATH"_), then clone the repository, create a virtualenv, install
+the app and run it. The app opens in your browser.
 
 ```powershell
 # Windows
+git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
+cd Drone-Competition-2
 python -m venv venv
 venv\Scripts\python -m pip install -e ".[dev]"
 venv\Scripts\python -m comp2
@@ -40,12 +43,15 @@ venv\Scripts\python -m comp2
 
 ```bash
 # macOS / Linux
+git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
+cd Drone-Competition-2
 python3 -m venv venv
 venv/bin/python -m pip install -e ".[dev]"
 venv/bin/python -m comp2
 ```
 
-Once installed, only the last line is needed to start again. Options:
+Once installed, you only need to `cd` into the folder and run the last line to
+start again. Options:
 
 ```powershell
 python -m comp2                                   # simulator, Circuit 1 (oval)
