@@ -122,6 +122,18 @@ jobs:
         shell: powershell
         run: ./scripts/install.ps1
 
+      # Same code as the install above, so the launcher must skip uv and pip.
+      - name: Launcher reruns without reinstalling
+        shell: bash
+        run: |
+          case "$RUNNER_OS" in
+            Windows) out=$(cmd //c "Start COMP2.cmd") ;;
+            macOS) out=$(sh "Start COMP2.command") ;;
+            *) out=$(./start-comp2.sh) ;;
+          esac
+          echo "$out"
+          echo "$out" | grep -q "Already up to date"
+
       - name: Simulator starts and serves the page
         shell: bash
         run: |

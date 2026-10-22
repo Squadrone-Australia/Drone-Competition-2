@@ -48,9 +48,22 @@ curl -LsSf https://raw.githubusercontent.com/Squadrone-Australia/Drone-Competiti
 
 When it finishes it prints the interpreter to select in your IDE
 (`...\venv\Scripts\python.exe` or `.../venv/bin/python`); that interpreter
-already has the client installed. To update later, run the same line again
-from the folder that contains `Drone-Competition-2` (or from inside it). Set
-`COMP2_DIR` to install somewhere else. On a slow or restricted network, uv's
+already has the client installed. Set `COMP2_DIR` to install somewhere else.
+
+**Starting it again.** The setup also creates a launcher:
+
+| System  | Launcher                                                                       |
+| ------- | ------------------------------------------------------------------------------ |
+| Windows | **Start COMP2** on your desktop, or `Start COMP2.cmd` in `Drone-Competition-2` |
+| macOS   | `Start COMP2.command` in `Drone-Competition-2` (double-click it in Finder)     |
+| Linux   | `Drone-Competition-2/start-comp2.sh`                                           |
+
+Every start updates COMP2 first: it downloads the latest code, reinstalls
+only when something changed, and then opens the simulator. Offline, or if the
+update fails, it starts the version you already have. If the simulator is
+already running, the launcher just opens it in your browser.
+
+On a slow or restricted network, uv's
 own `UV_DEFAULT_INDEX` (a PyPI mirror) and `UV_PYTHON_INSTALL_MIRROR` variables
 are honoured. On Linux, OpenCV needs `libgl1` and `libglib2.0-0`; the script
 tells you if they are missing.
