@@ -27,6 +27,36 @@ with it is the competition.
 
 ## Quick start
 
+### One-step setup
+
+Open a terminal in the folder where you want the app and run one line. It
+downloads the code into `Drone-Competition-2`, gets Python 3.13/3.14 if you
+don't have it (via [uv](https://docs.astral.sh/uv/), no admin rights needed),
+installs the app and the `squadrone` client into `Drone-Competition-2/venv`,
+and starts the simulator in your browser. Git is used when installed, and is
+not required.
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Squadrone-Australia/Drone-Competition-2/main/scripts/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -LsSf https://raw.githubusercontent.com/Squadrone-Australia/Drone-Competition-2/main/scripts/install.sh | sh
+```
+
+When it finishes it prints the interpreter to select in your IDE
+(`...\venv\Scripts\python.exe` or `.../venv/bin/python`); that interpreter
+already has the client installed. To update later, run the same line again
+from the folder that contains `Drone-Competition-2` (or from inside it). Set
+`COMP2_DIR` to install somewhere else. On a slow or restricted network, uv's
+own `UV_DEFAULT_INDEX` (a PyPI mirror) and `UV_PYTHON_INSTALL_MIRROR` variables
+are honoured. On Linux, OpenCV needs `libgl1` and `libglib2.0-0`; the script
+tells you if they are missing.
+
+### Manual setup
+
 Install [Git](https://git-scm.com/downloads) and
 [Python 3.13+](https://www.python.org/downloads/) (on Windows, tick _"Add
 python.exe to PATH"_), then clone the repository, create a virtualenv, install

@@ -88,3 +88,50 @@ jobs:
       - name: JS tests
         shell: bash
         run: node --test tests/js/*.test.js
+
+  # The one-step setup scripts contestants are told to run (README Quick start).
+  # Run from the checkout, they install into it rather than cloning, so this
+  # tests the branch's own code; git pull on the detached HEAD only warns.
+  install-script:
+    name: install script (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    env:
+      COMP2_NO_LAUNCH: "1"
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # Same libraries as the test job; install.sh stops and names them if missing.
+      - name: Install OpenCV system libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgl1 libglib2.0-0t64
+
+      - name: Run install.sh
+        if: runner.os != 'Windows'
+        run: sh scripts/install.sh
+
+      # Windows PowerShell 5.1, which is what contestants have.
+      - name: Run install.ps1
+        if: runner.os == 'Windows'
+        shell: powershell
+        run: ./scripts/install.ps1
+
+      - name: Simulator starts and serves the page
+        shell: bash
+        run: |
+          py=venv/bin/python
+          [ -x "$py" ] || py=venv/Scripts/python.exe
+          "$py" -m comp2 --no-browser &
+          trap 'kill $! 2>/dev/null' EXIT
+          for _ in $(seq 60); do
+            curl -sf -o /dev/null http://127.0.0.1:8765/ && exit 0
+            sleep 1
+          done
+          echo "simulator did not answer on port 8765" >&2
+          exit 1
