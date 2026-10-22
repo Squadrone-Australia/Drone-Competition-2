@@ -37,7 +37,7 @@ the app and run it. The app opens in your browser.
 git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
 cd Drone-Competition-2
 python -m venv venv
-venv\Scripts\python -m pip install -e ".[dev]"
+venv\Scripts\python -m pip install -e .
 venv\Scripts\python -m comp2
 ```
 
@@ -46,7 +46,7 @@ venv\Scripts\python -m comp2
 git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
 cd Drone-Competition-2
 python3 -m venv venv
-venv/bin/python -m pip install -e ".[dev]"
+venv/bin/python -m pip install -e .
 venv/bin/python -m comp2
 ```
 
@@ -106,7 +106,7 @@ so remember to pull the latest code from time to time:
 
 ```powershell
 git pull
-python -m pip install -e ".[dev]"    # in the app's venv, picks up new dependencies
+python -m pip install -e .           # in the app's venv, picks up new dependencies
 python -m pip install .\client       # in your IDE's interpreter, updates the client
 ```
 
@@ -242,6 +242,13 @@ scoring panels are simulator-only; on hardware you fly by camera and by the
 published track measurements.
 
 ## Development
+
+Contributors need the test, lint and packaging tools on top of the app. Teams
+do not:
+
+```bash
+venv/bin/python -m pip install -e ".[dev]"
+```
 
 ```bash
 venv/bin/python -m pytest            # Python tests (hardware-free)
