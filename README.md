@@ -27,6 +27,49 @@ with it is the competition.
 
 ## Quick start
 
+### One-step setup
+
+Open a terminal in the folder where you want the app and run one line. It
+downloads the code into `Drone-Competition-2`, gets Python 3.13/3.14 if you
+don't have it (via [uv](https://docs.astral.sh/uv/), no admin rights needed),
+installs the app and the `squadrone` client into `Drone-Competition-2/venv`,
+and starts the simulator in your browser. Git is used when installed, and is
+not required.
+
+```powershell
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/Squadrone-Australia/Drone-Competition-2/main/scripts/install.ps1 | iex
+```
+
+```bash
+# macOS / Linux
+curl -LsSf https://raw.githubusercontent.com/Squadrone-Australia/Drone-Competition-2/main/scripts/install.sh | sh
+```
+
+When it finishes it prints the interpreter to select in your IDE
+(`...\venv\Scripts\python.exe` or `.../venv/bin/python`); that interpreter
+already has the client installed. Set `COMP2_DIR` to install somewhere else.
+
+**Starting it again.** The setup also creates a launcher:
+
+| System  | Launcher                                                                       |
+| ------- | ------------------------------------------------------------------------------ |
+| Windows | **Start COMP2** on your desktop, or `Start COMP2.cmd` in `Drone-Competition-2` |
+| macOS   | `Start COMP2.command` in `Drone-Competition-2` (double-click it in Finder)     |
+| Linux   | `Drone-Competition-2/start-comp2.sh`                                           |
+
+Every start updates COMP2 first: it downloads the latest code, reinstalls
+only when something changed, and then opens the simulator. Offline, or if the
+update fails, it starts the version you already have. If the simulator is
+already running, the launcher just opens it in your browser.
+
+On a slow or restricted network, uv's
+own `UV_DEFAULT_INDEX` (a PyPI mirror) and `UV_PYTHON_INSTALL_MIRROR` variables
+are honoured. On Linux, OpenCV needs `libgl1` and `libglib2.0-0`; the script
+tells you if they are missing.
+
+### Manual setup
+
 Install [Git](https://git-scm.com/downloads) and
 [Python 3.13+](https://www.python.org/downloads/) (on Windows, tick _"Add
 python.exe to PATH"_), then clone the repository, create a virtualenv, install
@@ -37,7 +80,7 @@ the app and run it. The app opens in your browser.
 git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
 cd Drone-Competition-2
 python -m venv venv
-venv\Scripts\python -m pip install -e ".[dev]"
+venv\Scripts\python -m pip install -e .
 venv\Scripts\python -m comp2
 ```
 
@@ -46,7 +89,7 @@ venv\Scripts\python -m comp2
 git clone https://github.com/Squadrone-Australia/Drone-Competition-2.git
 cd Drone-Competition-2
 python3 -m venv venv
-venv/bin/python -m pip install -e ".[dev]"
+venv/bin/python -m pip install -e .
 venv/bin/python -m comp2
 ```
 
@@ -106,7 +149,7 @@ so remember to pull the latest code from time to time:
 
 ```powershell
 git pull
-python -m pip install -e ".[dev]"    # in the app's venv, picks up new dependencies
+python -m pip install -e .           # in the app's venv, picks up new dependencies
 python -m pip install .\client       # in your IDE's interpreter, updates the client
 ```
 
@@ -242,6 +285,13 @@ scoring panels are simulator-only; on hardware you fly by camera and by the
 published track measurements.
 
 ## Development
+
+Contributors need the test, lint and packaging tools on top of the app. Teams
+do not:
+
+```bash
+venv/bin/python -m pip install -e ".[dev]"
+```
 
 ```bash
 venv/bin/python -m pytest            # Python tests (hardware-free)

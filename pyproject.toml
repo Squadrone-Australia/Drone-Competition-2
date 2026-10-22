@@ -9,7 +9,10 @@ version = "0.1.0"
 requires-python = ">=3.13"
 dependencies = [
     "fastapi>=0.140",
-    "uvicorn[standard]>=0.51",
+    # Not [standard]: its uvloop/httptools/watchfiles/dotenv/yaml extras are
+    # speed-ups and dev reload the app never uses. websockets (below) is the
+    # one extra the /ws endpoint needs.
+    "uvicorn>=0.51",
     "pydantic>=2.13",
     "av>=18",
     "opencv-python>=5.0",

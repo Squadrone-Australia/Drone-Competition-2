@@ -3,8 +3,10 @@
 Install this package into the Python interpreter selected in your IDE:
 
 ```powershell
-python -m pip install .\client
+python -m pip install squadrone-comp2
 ```
+
+The package is `squadrone-comp2`; you import it as `squadrone`.
 
 Start the Squadrone application, then run your program normally:
 

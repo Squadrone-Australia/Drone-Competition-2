@@ -10,3 +10,9 @@ dist/
 .vscode/
 .conda/
 .ruff_cache/
+
+# Written by scripts/install.* on contestants' machines
+/Start COMP2.cmd
+/Start COMP2.command
+/start-comp2.sh
+/.comp2-version
