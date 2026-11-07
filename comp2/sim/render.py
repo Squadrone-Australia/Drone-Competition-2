@@ -291,7 +291,10 @@ def _floor_rect(img, cam, g, u0, u1, w0, w1, v, colour, mirror=False):
 # gate plane through the homography the camera induces on it — exact for a
 # flat ring, and the only practical way to carry the printed lettering. Angles
 # are clockwise from 12 o'clock as seen from the approach side, so the print
-# reads the right way round to a drone about to fly through.
+# reads the right way round to a drone about to fly through. The physical ring
+# is printed on both faces and reads correctly from either side, so from
+# behind the texture is laid on mirrored left to right; the layout is
+# symmetric about the vertical, so only the print changes.
 TEXTURE_PX = 512  # the ring's face, edge to edge, at the finest mip level
 _STRIP_W = 2048  # the band unrolled: columns for one full turn ...
 _STRIP_H = 96  # ... and rows across it, outer edge first
@@ -422,7 +425,11 @@ def _draw_ring(img, cam, g, pal, mirror=False):
     sparkle in a way no camera does.
     """
     r = g.radius_m
-    square = [(-r, r), (r, r), (r, -r), (-r, -r)]
+    nx, ny = g.normal()
+    # The texture's left edge on the viewer's left: +u is the ring's right as
+    # seen from the approach side, which is the left as seen from behind.
+    s = -r if (cam.x - g.x) * nx + (cam.y - g.y) * ny > 0 else r
+    square = [(-s, r), (s, r), (s, -r), (-s, -r)]
     pts = cam.to_camera([_frame_point(g, u, v, mirror=mirror) for u, v in square])
     if np.any(pts[:, 2] < NEAR):
         _draw_ring_sectors(img, cam, g, pal, mirror)

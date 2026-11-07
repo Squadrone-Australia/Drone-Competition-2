@@ -296,3 +296,22 @@ def test_mount_is_a_menu_entry_the_cockpit_can_pick_and_randomise():
         pass
     else:
         raise AssertionError("an unknown mount was accepted")
+
+
+def test_the_print_reads_the_right_way_round_from_behind_too():
+    """The physical ring is printed on both faces: from behind, the web address
+    still reads left to right, not as its mirror image. The band's layout is
+    symmetric about the vertical, so a ring seen square-on from behind looks
+    exactly as it does from the front; mirrored print would differ."""
+    gate = Gate(1.5, 3.0, 1.5, 0.0)  # normal +y
+    pal = renderer._palette(renderer.CLEAN)
+    views = []
+    for y, heading in ((2.0, 0.0), (4.0, 180.0)):
+        cam = Camera.at(INTRINSICS, gate.x, y, gate.z, heading, 640, 480)
+        img = np.zeros((480, 640, 3), np.uint8)
+        renderer._draw_ring(img, cam, gate, pal)
+        views.append(img.astype(float))
+    front, back = views
+    same = np.abs(back - front).mean()
+    mirrored = np.abs(back - front[:, ::-1]).mean()
+    assert same < 0.5 * mirrored, (same, mirrored)
