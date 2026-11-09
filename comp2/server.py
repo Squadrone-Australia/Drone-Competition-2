@@ -649,7 +649,13 @@ def create_app(
     async def _load_arena(app: FastAPI, msg):
         """Switch how the room looks, then put everything watching back."""
         active_drone = app.state.drone
-        if msg.get("randomize"):
+        if msg.get("flight"):
+            try:
+                await asyncio.to_thread(active_drone.load_flight, msg["flight"])
+            except ValueError as exc:
+                await _broadcast_json(app, {"type": "error", "message": str(exc)})
+                return
+        elif msg.get("randomize"):
             await asyncio.to_thread(
                 lambda: active_drone.randomize_arena(msg.get("seed"))
             )
@@ -667,6 +673,10 @@ def create_app(
             "type": "arena",
             "catalog": active_drone.arena_catalog(),
             "current": _arena_selection(active_drone),
+            "flight": {
+                "options": active_drone.flight_catalog(),
+                "current": active_drone.flight_name,
+            },
         }
 
     def _arena_selection(active_drone):

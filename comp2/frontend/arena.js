@@ -34,6 +34,7 @@
   const ORDER = ["floor", "net", "hall", "crowd", "light", "imaging", "gate", "mount"];
 
   const pickers = {};
+  let flight = null;
   let running = false;
   let built = false;
 
@@ -41,9 +42,30 @@
     return name.replace(/_/g, " ");
   }
 
-  function build(catalog) {
+  // Not part of the room, so it stays out of `pickers` and out of `apply`.
+  function buildFlight(options) {
+    const row = document.createElement("label");
+    row.className = "arena-row";
+    row.textContent = "Flight accuracy";
+    flight = document.createElement("select");
+    flight.id = "arena-flight";
+    flight.title = "How far the drone misses what it is told; changing it returns the drone to the pad";
+    for (const name of options) {
+      const opt = document.createElement("option");
+      opt.value = name;
+      opt.textContent = humanise(name);
+      flight.appendChild(opt);
+    }
+    flight.onchange = () => send({ type: "arena", flight: flight.value });
+    row.appendChild(flight);
+    controls.appendChild(row);
+    flight.disabled = running;
+  }
+
+  function build(catalog, flightMenu) {
     if (built) return;
     built = true;
+    if (flightMenu) buildFlight(flightMenu.options);
     for (const key of ORDER) {
       const options = catalog.libraries[key];
       if (!options) continue;
@@ -84,6 +106,7 @@
     // race, exactly as a track change would, so the server refuses it and the
     // controls say so rather than letting the click fail.
     for (const select of Object.values(pickers)) select.disabled = state;
+    if (flight) flight.disabled = state;
     preset.disabled = state;
     intensity.disabled = state;
     randomButton.disabled = state;
@@ -94,7 +117,8 @@
 
   window.COMP2_BUS.on((msg) => {
     if (msg.type === "arena") {
-      build(msg.catalog);
+      build(msg.catalog, msg.flight);
+      if (flight && msg.flight) flight.value = msg.flight.current;
       if (msg.current) {
         preset.value = msg.current.name || "";
         // The menus are sorted, so "hanging" would otherwise sit selected over

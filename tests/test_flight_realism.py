@@ -7,11 +7,13 @@ disturbance model that wrecks the scoring is no more honest than none at all.
 """
 
 import math
+import statistics
 
 import pytest
 
 from comp2.sim.disturbance import Gusts
 from comp2.sim.drone import TAKEOFF_MAX_M, TAKEOFF_MIN_M, SimDrone
+from comp2.sim.flight_error import NOISE_REFERENCE, PROFILES, resolve
 from comp2.sim.race import J_REF
 
 
@@ -166,3 +168,138 @@ def test_rotate_error_scales_with_the_noise_setting():
     loud, quiet = spread(0.2), spread(0.02)
     assert loud > quiet * 3, f"noise 0.2 gave {loud:.2f} deg, 0.02 gave {quiet:.2f}"
     assert quiet < 2.0
+
+
+# --- how far a move misses -------------------------------------------------
+
+
+def miss_cm(flight, cm, seeds=200):
+    """Median distance between where a forward move ended and was meant to."""
+    misses = []
+    for seed in range(seeds):
+        drone = SimDrone(delay=0, flight=flight, seed=seed, arena_name="clean")
+        drone.takeoff()
+        x0, y0, z0 = drone.x, drone.y, drone.z
+        h = math.radians(drone.heading)
+        # Mid-cage and pointed along the long axis, so no wall clamps the result.
+        drone.x, drone.y, x0, y0 = 0.3, 2.0, 0.3, 2.0
+        drone.heading, h = 90.0, math.radians(90.0)
+        drone.move("forward", cm)
+        d = cm / 100
+        misses.append(
+            100
+            * math.dist(
+                (drone.x, drone.y, drone.z),
+                (x0 + d * math.sin(h), y0 + d * math.cos(h), z0),
+            )
+        )
+    return statistics.median(misses)
+
+
+def test_a_50cm_move_misses_by_a_few_centimetres():
+    """The anchor for the whole model, as observed on the real aircraft."""
+    assert 2.0 <= miss_cm("typical", 50) <= 5.0
+
+
+def test_error_grows_with_distance_and_worse_conditions():
+    assert miss_cm("typical", 200) > 2 * miss_cm("typical", 50)
+    assert miss_cm("poor", 200) > 1.5 * miss_cm("typical", 200)
+    assert miss_cm("good", 200) < miss_cm("typical", 200)
+
+
+@pytest.mark.parametrize(
+    "fly",
+    [
+        lambda d: d.move("forward", 100),
+        lambda d: d.move("up", 50),
+        lambda d: d.go_xyz(100, 30, 0, 100),
+        lambda d: d.curve_xyz(50, 50, 0, 100, 0, 0, 100),
+    ],
+)
+def test_every_motion_path_has_errors_and_ideal_has_none(fly):
+    def end(flight, seed):
+        drone = SimDrone(delay=0, flight=flight, seed=seed, arena_name="clean")
+        drone.takeoff()
+        fly(drone)
+        return (drone.x, drone.y, drone.z, drone.heading)
+
+    assert end("ideal", 1) == end("ideal", 2)
+    assert end("typical", 1) != end("typical", 2)
+
+
+def test_a_seed_replays_a_flight_exactly():
+    def flight(seed):
+        drone = SimDrone(delay=0, flight="poor", seed=seed, arena_name="clean")
+        drone.takeoff()
+        drone.move("forward", 100)
+        drone.rotate("cw", 90)
+        return drone.pose()
+
+    assert flight(4) == flight(4)
+    assert flight(4) != flight(5)
+
+
+def test_without_a_seed_the_air_differs_between_flights():
+    drones = [SimDrone(delay=0, flight="typical", arena_name="clean") for _ in range(2)]
+    assert drones[0]._gusts.offset(3.0) != drones[1]._gusts.offset(3.0)
+
+
+def test_pad_centring_closes_the_loop():
+    drone = SimDrone(delay=0, flight="poor", seed=3, arena_name="clean")
+    drone.takeoff()
+    drone.enable_mission_pads()
+    drone.center_on_mission_pad(1, 80, 50)
+    assert (drone.x, drone.y) == pytest.approx(drone.world.start_xy, abs=1e-6)
+
+
+def test_takeoff_drifts_off_the_pad():
+    def shift(seed):
+        drone = SimDrone(delay=0, flight="typical", seed=seed, arena_name="clean")
+        start = (drone.x, drone.y)
+        drone.takeoff()
+        return math.dist((drone.x, drone.y), start)
+
+    shifts = [shift(seed) for seed in range(40)]
+    assert 0.01 < statistics.median(shifts) < 0.12
+
+
+def test_rc_stick_gain_differs_by_flight():
+    drone = SimDrone(delay=0, flight="typical", seed=2, arena_name="clean")
+    assert drone._errors.rc_gain == (1.0, 1.0, 1.0, 1.0)
+    drone.takeoff()
+    assert drone._errors.rc_gain != (1.0, 1.0, 1.0, 1.0)
+    assert all(0.8 < g < 1.2 for g in drone._errors.rc_gain)
+
+
+def test_a_flown_path_keeps_its_smoothness():
+    """Errors move the end of a manoeuvre; they must not add jerk to it."""
+    drone = SimDrone(delay=0, flight="typical", seed=6, arena_name="clean")
+    drone.takeoff()
+    straight = [(i / 30, 0.0, 1.0) for i in range(1, 61)]  # 1 m/s, one sample a tick
+    points, _ = drone._perturb_path((0.0, 0.0, 1.0), straight, 0.0)
+    samples = [(i / 30, *p) for i, p in enumerate(points)]
+    jerk = jerk_rms(samples)
+    assert jerk < 0.05 * J_REF, f"jerk {jerk:.1f}"
+
+
+def test_creep_is_band_limited_and_actually_moves():
+    gusts = Gusts(seed=3, scale=0.03, slow_scale=0.05)
+    samples = [
+        (i / 30.0, *(3.0 + d for d in gusts.offset(i / 30.0))) for i in range(2700)
+    ]
+    assert jerk_rms(samples) < 0.05 * J_REF
+    horizontal = [math.hypot(s[1] - 3.0, s[2] - 3.0) for s in samples]
+    assert 0.02 < max(horizontal) < 0.25
+
+
+def test_unknown_flight_profile_is_refused():
+    with pytest.raises(ValueError, match="typical"):
+        SimDrone(delay=0, flight="stormy", arena_name="clean")
+
+
+def test_noise_scales_the_typical_profile():
+    assert resolve(noise=NOISE_REFERENCE) == PROFILES["typical"]
+    assert resolve(noise=0.0) == PROFILES["ideal"]
+    assert resolve(noise=0.1).takeoff_height_m == pytest.approx(
+        2 * PROFILES["typical"].takeoff_height_m
+    )

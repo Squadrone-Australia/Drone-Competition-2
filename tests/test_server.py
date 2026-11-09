@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 from comp2.drone.mock import MockDrone
 from comp2.server import create_app
 from comp2.sim.drone import SimDrone
+from comp2.sim.flight_error import PROFILES
 from comp2.sim.world import Gate, World
 
 
@@ -592,6 +593,25 @@ def test_arena_catalog_is_offered_and_switchable(tmp_path):
         )
         _await_message(ws, "arena")
         assert drone.world.appearance.hall is not None
+
+
+def test_flight_accuracy_is_offered_and_switchable():
+    drone = SimDrone(delay=0, arena_name="clean", flight="typical")
+    app = create_app(drone)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        first = _await_message(ws, "arena")["flight"]
+        assert first == {
+            "options": ["ideal", "good", "typical", "poor"],
+            "current": "typical",
+        }
+
+        ws.send_json({"type": "arena", "flight": "poor"})
+        assert _await_message(ws, "arena")["flight"]["current"] == "poor"
+        assert drone.flight_profile is PROFILES["poor"]
+
+        ws.send_json({"type": "arena", "flight": "stormy"})
+        assert "stormy" in _await_message(ws, "error")["message"]
+        assert drone.flight_name == "poor"
 
 
 def _await_message(ws, kind, limit=400):
