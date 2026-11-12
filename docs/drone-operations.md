@@ -437,3 +437,4 @@ its intent is explicit.
   closed-loop camera example, debugging advice and troubleshooting.
 - `examples/01_first_lap.py` (discrete commands) and `examples/02_smooth_lap.py`
   (continuous control).
+- `examples/03_pilot.py`: fly by keyboard, and record the camera while you do.

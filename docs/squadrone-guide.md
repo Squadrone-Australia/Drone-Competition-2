@@ -105,7 +105,8 @@ your own IDE terminal, not in the browser.
 
 The two shipped examples are good next reads: `examples/01_first_lap.py` flies
 Circuit 1 with discrete commands and `examples/02_smooth_lap.py` flies it with
-continuous velocity control.
+continuous velocity control. To look round the arena from the drone first, run
+`examples/03_pilot.py`: it flies by keyboard and records what the camera sees.
 
 ## 4. The connection
 
@@ -285,6 +286,11 @@ including the cockpit's minimap and your `show_detections()` outlines, is never
 present in the frames you receive. In the simulator, frames come through the
 real Tello's camera model, so a detector tuned there is a fair starting point
 for the cage, although real lighting and netting will still need re-tuning.
+
+`examples/03_pilot.py` reads frames in a thread of its own while you fly the drone
+by keyboard, and records them to MP4 and PNG. It is a quick way to collect
+pictures of the gates from every angle to build and test a detector on, and its
+`Pilot._camera` method is a template for reading frames alongside commands.
 
 ### `show_detections()`
 

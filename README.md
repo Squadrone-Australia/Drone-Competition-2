@@ -232,7 +232,7 @@ fallback. Such a script must `from comp2.api import Drone`; the programs in
 | ------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------- |
 | [Squadrone client guide](docs/squadrone-guide.md)      | Start here: install, connect, control styles, camera and vision loop, errors and the emergency stop, simulator vs. real Tello, troubleshooting |
 | [Drone operations reference](docs/drone-operations.md) | Look up an operation: every argument, range, coordinate convention, return value and safety behaviour                                          |
-| [`examples/`](examples/)                               | `01_first_lap.py` (discrete commands) and `02_smooth_lap.py` (continuous velocity control) on Circuit 1                                        |
+| [`examples/`](examples/)                               | `01_first_lap.py`, `02_smooth_lap.py`: Circuit 1 by discrete commands, by velocity; `03_pilot.py`: fly by keyboard and record video            |
 
 Things worth knowing before you start: all calls block until finished;
 distances are centimetres, angles degrees, and every direction is relative to
