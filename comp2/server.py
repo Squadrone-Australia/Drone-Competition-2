@@ -688,6 +688,7 @@ def create_app(
             "name": getattr(active_drone, "arena_name", None),
             "light_intensity": appearance.light.intensity,
             "mount": appearance.mount,
+            "parts": dict(appearance.parts),
         }
 
     async def _announce_drone(app: FastAPI, candidate: DroneAdapter):

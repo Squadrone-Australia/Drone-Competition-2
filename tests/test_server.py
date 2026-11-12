@@ -7,6 +7,7 @@ from fastapi.testclient import TestClient
 
 from comp2.drone.mock import MockDrone
 from comp2.server import create_app
+from comp2.sim import arena
 from comp2.sim.drone import SimDrone
 from comp2.sim.flight_error import PROFILES
 from comp2.sim.world import Gate, World
@@ -580,13 +581,22 @@ def test_arena_catalog_is_offered_and_switchable(tmp_path):
         catalog = _await_message(ws, "arena")
         assert "floor" in catalog["catalog"]["libraries"]
         assert catalog["current"]["name"] == "clean"
+        assert catalog["current"]["parts"]["floor"] == "studio_grey"
 
         ws.send_json({"type": "arena", "name": "cage"})
-        assert _await_message(ws, "arena")["current"]["name"] == "cage"
+        cage = _await_message(ws, "arena")["current"]
+        assert cage["name"] == "cage"
+        assert cage["parts"]["floor"] == "varnished_wood"
         assert drone.world.appearance.net is not None
 
         ws.send_json({"type": "arena", "randomize": True, "seed": 5})
-        assert _await_message(ws, "arena")["current"]["name"] == "random"
+        current = _await_message(ws, "arena")["current"]
+        assert current["name"] == "random"
+        # Every menu the cockpit shows is told what Randomize drew, so the
+        # dropdowns can follow it instead of keeping the previous picks.
+        expected = dict(arena.randomize(5).parts)
+        assert current["parts"] == expected
+        assert set(expected) == set(arena.catalog()["libraries"])
 
         ws.send_json(
             {"type": "arena", "parts": {"floor": "grey_sports", "hall": "lab"}}

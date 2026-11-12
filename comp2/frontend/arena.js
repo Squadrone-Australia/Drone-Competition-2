@@ -121,9 +121,15 @@
       if (flight && msg.flight) flight.value = msg.flight.current;
       if (msg.current) {
         preset.value = msg.current.name || "";
-        // The menus are sorted, so "hanging" would otherwise sit selected over
-        // a stand-mounted arena.
-        if (msg.current.mount && pickers.mount) pickers.mount.value = msg.current.mount;
+        // "random" and "custom" are not presets: show the menu's "custom".
+        if (preset.selectedIndex < 0) preset.value = "";
+        // Every menu follows what the server actually built, so a preset or
+        // Randomize is reflected here rather than leaving stale picks that the
+        // next single-menu change would send back.
+        const parts = msg.current.parts || { mount: msg.current.mount };
+        for (const [key, value] of Object.entries(parts)) {
+          if (value && pickers[key]) pickers[key].value = value;
+        }
         if (msg.current.light_intensity != null) {
           intensity.value = msg.current.light_intensity;
           intensityValue.textContent = Number(msg.current.light_intensity).toFixed(2);
