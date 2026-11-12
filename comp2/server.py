@@ -18,6 +18,17 @@ from .api import Drone, EmergencyStop, ScriptRun, Session
 from .drone.base import DroneAdapter
 from .sim.race import RUNNING, RaceScorer
 
+try:
+    from starlette.websockets import WebSocketDisconnected
+except ImportError:  # Starlette before 1.0 raised a bare RuntimeError instead
+    WebSocketDisconnected = RuntimeError
+
+# A peer that vanishes without a close frame (killed, crashed, Wi-Fi gone) is
+# usually noticed first by one of our sends: the video, say. That marks the
+# socket closed, and the next receive then raises WebSocketDisconnected rather
+# than WebSocketDisconnect. Both mean the same thing here: the peer is gone.
+DISCONNECTED = (WebSocketDisconnect, WebSocketDisconnected)
+
 log = logging.getLogger(__name__)
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
@@ -1011,7 +1022,7 @@ def create_app(
                         await _broadcast_json(
                             app, {"type": "finished", "reason": "done", "detail": ""}
                         )
-        except WebSocketDisconnect:
+        except DISCONNECTED:
             pass
         finally:
             await _finish_remote(app, run, "disconnected", "Python client disconnected")
@@ -1247,7 +1258,7 @@ def create_app(
                         await _reply_error(
                             ws, f"this program does not understand '{msg['type']}'"
                         )
-                except WebSocketDisconnect:
+                except DISCONNECTED:
                     raise
                 except Exception as exc:
                     # One malformed or unlucky message must never take the socket
@@ -1256,7 +1267,7 @@ def create_app(
                     kind = msg.get("type") if isinstance(msg, dict) else "unreadable"
                     log.exception("error handling %s message", kind)
                     await _reply_error(ws, f"could not do that: {exc}")
-        except WebSocketDisconnect:
+        except DISCONNECTED:
             pass
         finally:
             app.state.clients.discard(ws)
