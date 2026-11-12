@@ -334,6 +334,18 @@ def _checker_face(pal: tuple, inner_ratio: float, n: int) -> np.ndarray:
     segments and outside the ring.
     """
     _, dark, light, _ = (np.array(c, np.float32) for c in pal)
+    dark_w, light_w = _checker_weights(inner_ratio, n)
+    return dark * dark_w[..., None] + light * light_w[..., None]
+
+
+@functools.lru_cache(maxsize=4)
+def _checker_weights(inner_ratio: float, n: int) -> tuple[np.ndarray, np.ndarray]:
+    """How much of each texel is a dark square and how much a light one.
+
+    Kept apart from the colours: the palette changes with the light (the
+    ring's texture is rebuilt for each one), but the layout does not, and the
+    supersampled layout is the expensive part.
+    """
     m = n * _CHECKER_SUPERSAMPLE
     c = (np.arange(m, dtype=np.float32) + 0.5) / m * 2.0 - 1.0
     u, v = np.meshgrid(np.abs(c), -c)
@@ -345,7 +357,9 @@ def _checker_face(pal: tuple, inner_ratio: float, n: int) -> np.ndarray:
     shrink = {"dsize": (n, n), "interpolation": cv2.INTER_AREA}
     side_w = cv2.resize(side.astype(np.float32), **shrink)
     light_w = cv2.resize((side & odd).astype(np.float32), **shrink)
-    return dark * (side_w - light_w)[..., None] + light * light_w[..., None]
+    dark_w = side_w - light_w
+    dark_w.flags.writeable = light_w.flags.writeable = False  # shared by the cache
+    return dark_w, light_w
 
 
 def _text_mask(text: str, width: int, height: int, thickness: int) -> np.ndarray:
@@ -471,6 +485,8 @@ def _draw_ring(img, cam, g, pal, mirror=False):
     s = -r if (cam.x - g.x) * nx + (cam.y - g.y) * ny > 0 else r
     square = [(-s, r), (s, r), (s, -r), (-s, -r)]
     pts = cam.to_camera([_frame_point(g, u, v, mirror=mirror) for u, v in square])
+    if np.all(pts[:, 2] < NEAR):
+        return  # wholly behind the camera
     if np.any(pts[:, 2] < NEAR):
         _draw_ring_sectors(img, cam, g, pal, mirror)
         return
@@ -516,7 +532,6 @@ def _draw_ring_sectors(img, cam, g, pal, mirror=False):
     """
     half = GATE_ORANGE_HALF_ANGLE_DEG
     r_in, r_out = g.opening_radius_m, g.radius_m
-    rows = GATE_CHECKER_ROWS
 
     def point(deg, r):
         a = math.radians(deg)
@@ -535,12 +550,30 @@ def _draw_ring_sectors(img, cam, g, pal, mirror=False):
             a0 = centre - half + 2 * half * j / _SECTOR_STEPS
             a1 = centre - half + 2 * half * (j + 1) / _SECTOR_STEPS
             cell(a0, a1, r_out, r_in, pal["orange"])
-    # The checker: the same upright grid as the texture (see _checker_face),
-    # each square clipped to slices of the segment thin enough that their
-    # straight edges follow the rims.
-    s = (r_out - r_in) / rows
+    # The checker: the same upright grid as the texture (see _checker_face).
+    for piece, light in _checker_pieces(r_in, r_out):
+        fill_quad(
+            img,
+            cam,
+            [_frame_point(g, u, v, mirror=mirror) for u, v in piece],
+            pal["light"] if light else pal["dark"],
+        )
+
+
+@functools.lru_cache(maxsize=8)
+def _checker_pieces(r_in: float, r_out: float) -> tuple:
+    """The checker as convex polygons in the ring's plane, in metres.
+
+    Each grid square is clipped to slices of its segment thin enough that
+    their straight edges follow the rims. Pure geometry, the same for every
+    gate of a size, so it is worked out once: clipping hundreds of squares
+    per frame would cost more than the rest of the frame.
+    """
+    half = GATE_ORANGE_HALF_ANGLE_DEG
+    s = (r_out - r_in) / GATE_CHECKER_ROWS
     columns = math.ceil(r_out / s)
     span = 180.0 - 2 * half
+    pieces = []
     for side in (1, -1):
         for j in range(_SECTOR_STEPS):
             angles = (
@@ -570,15 +603,10 @@ def _draw_ring_sectors(img, cam, g, pal, mirror=False):
                     continue
                 for row in range(math.floor(v_lo / s), math.ceil(v_hi / s)):
                     piece = _clip_rect(slice_, u0, row * s, u1, (row + 1) * s)
-                    if len(piece) < 3:
-                        continue
-                    colour = pal["light"] if (col + row) % 2 else pal["dark"]
-                    fill_quad(
-                        img,
-                        cam,
-                        [_frame_point(g, pu, pv, mirror=mirror) for pu, pv in piece],
-                        colour,
-                    )
+                    if len(piece) >= 3:
+                        corners = tuple((float(u), float(v)) for u, v in piece)
+                        pieces.append((corners, (col + row) % 2 == 1))
+    return tuple(pieces)
 
 
 def _draw_stand(img, cam, g, pal, mirror=False):
