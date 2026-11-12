@@ -2,6 +2,7 @@
 
 import math
 
+import cv2
 import numpy as np
 
 from comp2.sim import arena
@@ -16,7 +17,13 @@ from comp2.sim.render import (
     render,
 )
 from comp2.sim.scene import Camera
-from comp2.sim.world import GATE_MAST_M, Gate, World
+from comp2.sim.world import (
+    GATE_CHECKER_ROWS,
+    GATE_MAST_M,
+    GATE_ORANGE_HALF_ANGLE_DEG,
+    Gate,
+    World,
+)
 
 
 def world_with_gate(x=1.5, y=3.0, z=1.5, yaw=0.0):
@@ -197,6 +204,67 @@ def test_the_polygon_fallback_covers_what_the_texture_does():
     renderer._draw_ring_sectors(polygons, cam, gate, pal)
     a, b = warped.any(axis=-1), polygons.any(axis=-1)
     assert (a ^ b).sum() < 0.05 * a.sum()
+
+
+def test_the_checker_is_an_upright_grid_not_bent_round_the_ring():
+    """The physical ring's checker is cut from flat checkered fabric: the
+    squares stay upright all the way round and the band's curved edges cut
+    through them. So every grid square lying wholly inside a checkered segment
+    is a single colour, the right one, at 2 o'clock as much as at 3."""
+    pal = renderer._palette(renderer.CLEAN)
+    key = tuple(
+        tuple(int(c) for c in pal[k]) for k in ("orange", "dark", "light", "print")
+    )
+    inner = round(0.25 / 0.35, 4)
+    tex = renderer._ring_texture(key, inner)[0]
+    n = tex.shape[0]
+    s = (1 - inner) / GATE_CHECKER_ROWS  # four squares across the band
+    half = GATE_ORANGE_HALF_ANGLE_DEG
+    margin = 2.0 / n  # clear of the anti-aliased rims
+
+    def on_checker(u, v):
+        theta = math.degrees(math.atan2(abs(u), v))
+        return (
+            inner + margin <= math.hypot(u, v) <= 1 - margin
+            and half + 1 <= theta <= 180 - half - 1
+        )
+
+    checked, rows_seen = 0, set()
+    reach = math.ceil(1 / s)
+    for side in (1, -1):
+        for col in range(reach):
+            far, near = 1 - col * s, 1 - (col + 1) * s
+            for row in range(-reach, reach):
+                v0, v1 = row * s, (row + 1) * s
+                corners = [(side * a, b) for a in (near, far) for b in (v0, v1)]
+                if not all(on_checker(u, v) for u, v in corners):
+                    continue
+                u, v = side * (near + far) / 2, (v0 + v1) / 2
+                x = round((u + 1) / 2 * n - 0.5)
+                y = round((1 - v) / 2 * n - 0.5)
+                want = pal["light"] if (col + row) % 2 else pal["dark"]
+                got = tex[y, x, :3]
+                assert np.abs(got - np.array(want)).max() < 8, (side, col, row, got)
+                checked += 1
+                rows_seen.add(row)
+    # whole squares from near the orange at the top to near it at the bottom
+    assert checked > 60 and max(rows_seen) >= 7 and min(rows_seen) <= -8
+
+
+def test_the_polygon_fallback_draws_the_same_checker_as_the_texture():
+    gate, _img, cam = face_on()
+    pal = renderer._palette(renderer.CLEAN)
+    warped = np.zeros((480, 640, 3), np.uint8)
+    polygons = np.zeros((480, 640, 3), np.uint8)
+    renderer._draw_ring(warped, cam, gate, pal)
+    renderer._draw_ring_sectors(polygons, cam, gate, pal)
+    # Square interiors only: a square is ~8 px here, so its anti-aliased edges
+    # would otherwise be a large share of the comparison.
+    kernel = np.ones((3, 3), np.uint8)
+    for colour in (CHECK_DARK_BGR, CHECK_LIGHT_BGR):
+        inside = cv2.erode(is_colour(warped, colour).astype(np.uint8), kernel) > 0
+        assert inside.sum() > 500
+        assert is_colour(polygons, colour)[inside].mean() > 0.95
 
 
 def test_the_room_is_actually_drawn():

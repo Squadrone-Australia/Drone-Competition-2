@@ -22,7 +22,15 @@ import numpy as np
 
 from ..vision.camera import SIM_INTRINSICS
 from .arena import CLEAN
-from .scene import NEAR, Camera, draw_line, fill_quad, fill_quad_alpha, shade
+from .scene import (
+    NEAR,
+    Camera,
+    _clip_rect,
+    draw_line,
+    fill_quad,
+    fill_quad_alpha,
+    shade,
+)
 from .world import (
     GATE_CHECKER_ROWS,
     GATE_CLAMP_M,
@@ -300,13 +308,44 @@ _STRIP_W = 2048  # the band unrolled: columns for one full turn ...
 _STRIP_H = 96  # ... and rows across it, outer edge first
 _STRIP_PAD = 8  # columns wrapped onto each end, so the seam interpolates
 _SECTOR_STEPS = 16  # polygons per orange segment in the close-range fallback
+# The checker's square edges are drawn from this many samples per texel a side,
+# so they come out anti-aliased like every other edge in the frame.
+_CHECKER_SUPERSAMPLE = 4
+
+# The checkered segments are cut from flat checkered fabric, not printed along
+# the band: the squares stay upright all the way round the ring and the band's
+# curved edges simply cut through them, leaving part squares at both rims. A
+# square is a quarter of the band wide, so four sit across it at 3 and 9
+# o'clock, and columns are counted in from the outer edge on each side, which
+# keeps the ring symmetric about the vertical (it reads the same from behind).
+# The column of a point `u` across and `v` up from the centre is
+# floor((R - |u|) / s), its row floor(v / s), and odd squares are light.
 
 
-def _side_checker_count(inner_ratio: float) -> int:
-    """Squares along one checkered segment, square at the band's mid radius."""
-    span = math.radians(180.0 - 2 * GATE_ORANGE_HALF_ANGLE_DEG)
-    mid = (1.0 + inner_ratio) / 2
-    return max(1, round(mid * span / ((1.0 - inner_ratio) / GATE_CHECKER_ROWS)))
+def _checker_square(inner_ratio: float) -> float:
+    """The checker's square side, as a fraction of the outer radius."""
+    return (1.0 - inner_ratio) / GATE_CHECKER_ROWS
+
+
+def _checker_face(pal: tuple, inner_ratio: float, n: int) -> np.ndarray:
+    """The two checkered segments over the ring's n x n face, black elsewhere.
+
+    Opaque BGR, to be multiplied by the band's alpha; zero over the orange
+    segments and outside the ring.
+    """
+    _, dark, light, _ = (np.array(c, np.float32) for c in pal)
+    m = n * _CHECKER_SUPERSAMPLE
+    c = (np.arange(m, dtype=np.float32) + 0.5) / m * 2.0 - 1.0
+    u, v = np.meshgrid(np.abs(c), -c)
+    half = GATE_ORANGE_HALF_ANGLE_DEG
+    theta = np.degrees(np.arctan2(u, v))  # 0 at 12 o'clock, 180 at 6
+    side = (theta >= half) & (theta <= 180.0 - half)
+    s = _checker_square(inner_ratio)
+    odd = (np.floor((1.0 - u) / s) + np.floor(v / s)) % 2 == 1
+    shrink = {"dsize": (n, n), "interpolation": cv2.INTER_AREA}
+    side_w = cv2.resize(side.astype(np.float32), **shrink)
+    light_w = cv2.resize((side & odd).astype(np.float32), **shrink)
+    return dark * (side_w - light_w)[..., None] + light * light_w[..., None]
 
 
 def _text_mask(text: str, width: int, height: int, thickness: int) -> np.ndarray:
@@ -357,18 +396,16 @@ def _band_strip(pal: tuple, inner_ratio: float) -> np.ndarray:
 
     Column 0 is 9 o'clock and columns run clockwise, so 12 o'clock is a
     quarter of the way along and 6 o'clock three quarters; row 0 is the outer
-    edge. Orange top and bottom with the print, checker either side.
+    edge. Orange top and bottom with the print; the checkered segments either
+    side are left black, because the checker is not laid along the band (see
+    :func:`_checker_face`).
     """
-    orange, dark, light, ink = (np.array(c, np.float64) for c in pal)
+    orange, _, _, ink = (np.array(c, np.float64) for c in pal)
     w, h, half = _STRIP_W, _STRIP_H, GATE_ORANGE_HALF_ANGLE_DEG
     theta = (np.arange(w) + 0.5) / w * 360.0 - 90.0
     theta = (theta + 180.0) % 360.0 - 180.0  # clockwise from 12 o'clock
     off_vertical = np.minimum(np.abs(theta), 180.0 - np.abs(theta))
-    n = _side_checker_count(inner_ratio)
-    square = np.floor((np.abs(theta) - half) / (180.0 - 2 * half) * n).astype(int)
-    row = np.floor((np.arange(h) + 0.5) / h * GATE_CHECKER_ROWS).astype(int)
-    is_light = (square[None, :] + row[:, None]) % 2 == 1
-    strip = np.where(is_light[..., None], light, dark)
+    strip = np.zeros((h, w, 3))
     strip[:, off_vertical < half] = orange
 
     seg = int(round(2 * half / 360.0 * w))
@@ -411,6 +448,9 @@ def _ring_texture(pal: tuple, inner_ratio: float) -> tuple:
         borderMode=cv2.BORDER_CONSTANT,
         borderValue=0,
     )
+    # The strip carries the band's shape (alpha) and the orange; the checker is
+    # an upright grid on the face itself, so it goes on here, premultiplied.
+    tex[..., :3] += _checker_face(pal, inner_ratio, n) * tex[..., 3:]
     levels = [tex]
     while levels[-1].shape[0] > 8:
         levels.append(cv2.pyrDown(levels[-1]))
@@ -495,16 +535,50 @@ def _draw_ring_sectors(img, cam, g, pal, mirror=False):
             a0 = centre - half + 2 * half * j / _SECTOR_STEPS
             a1 = centre - half + 2 * half * (j + 1) / _SECTOR_STEPS
             cell(a0, a1, r_out, r_in, pal["orange"])
-    n = _side_checker_count(r_in / r_out)
+    # The checker: the same upright grid as the texture (see _checker_face),
+    # each square clipped to slices of the segment thin enough that their
+    # straight edges follow the rims.
+    s = (r_out - r_in) / rows
+    columns = math.ceil(r_out / s)
+    span = 180.0 - 2 * half
     for side in (1, -1):
-        for i in range(n):
-            a0 = half + (180.0 - 2 * half) * i / n
-            a1 = half + (180.0 - 2 * half) * (i + 1) / n
-            for k in range(rows):
-                ra = r_out - (r_out - r_in) * k / rows
-                rb = r_out - (r_out - r_in) * (k + 1) / rows
-                colour = pal["light"] if (i + k) % 2 else pal["dark"]
-                cell(side * a0, side * a1, ra, rb, colour)
+        for j in range(_SECTOR_STEPS):
+            angles = (
+                half + span * j / _SECTOR_STEPS,
+                half + span * (j + 1) / _SECTOR_STEPS,
+            )
+            slice_ = np.array(
+                [
+                    (
+                        side * r * math.sin(math.radians(a)),
+                        r * math.cos(math.radians(a)),
+                    )
+                    for a, r in (
+                        (angles[0], r_out),
+                        (angles[1], r_out),
+                        (angles[1], r_in),
+                        (angles[0], r_in),
+                    )
+                ]
+            )
+            u_lo, v_lo = slice_.min(axis=0)
+            u_hi, v_hi = slice_.max(axis=0)
+            for col in range(columns):
+                far, near = r_out - col * s, r_out - (col + 1) * s
+                u0, u1 = (near, far) if side > 0 else (-far, -near)
+                if u1 <= u_lo or u0 >= u_hi:
+                    continue
+                for row in range(math.floor(v_lo / s), math.ceil(v_hi / s)):
+                    piece = _clip_rect(slice_, u0, row * s, u1, (row + 1) * s)
+                    if len(piece) < 3:
+                        continue
+                    colour = pal["light"] if (col + row) % 2 else pal["dark"]
+                    fill_quad(
+                        img,
+                        cam,
+                        [_frame_point(g, pu, pv, mirror=mirror) for pu, pv in piece],
+                        colour,
+                    )
 
 
 def _draw_stand(img, cam, g, pal, mirror=False):

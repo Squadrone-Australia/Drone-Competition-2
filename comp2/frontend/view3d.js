@@ -4,7 +4,7 @@
  * Kept apart from scene3d.js so the renderer stays a pure "given a scene and a
  * pose, draw it" module with no knowledge of the protocol or the DOM around it.
  */
-import { createStage } from "./scene3d.js?v=20261107-2";
+import { createStage } from "./scene3d.js?v=20261112-1";
 
 const container = document.getElementById("view3d");
 const empty = document.getElementById("stage-empty");

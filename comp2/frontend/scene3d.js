@@ -573,28 +573,42 @@ function ringTexture(colours, innerRatio, ring) {
   const band = rOut - rIn;
   // canvas angles start at 3 o'clock and run clockwise on screen
   const at = (theta) => deg(theta - 90);
-  const sector = (a0, a1, ra, rb, colour) => {
+  const sectorPath = (a0, a1, ra, rb) => {
     ctx.beginPath();
     ctx.arc(c, c, ra, at(a0), at(a1));
     ctx.arc(c, c, rb, at(a1), at(a0), true);
     ctx.closePath();
+  };
+  const sector = (a0, a1, ra, rb, colour) => {
+    sectorPath(a0, a1, ra, rb);
     ctx.fillStyle = colour;
     ctx.fill();
   };
   for (const centre of [0, 180]) sector(centre - half, centre + half, rOut, rIn, colours.orange);
   const mid = (rOut + rIn) / 2;
-  const n = Math.max(1, Math.round((mid * deg(180 - 2 * half)) / (band / rows)));
+  // The checker is cut from flat checkered fabric, not printed along the band:
+  // an upright grid of squares a quarter of the band wide (four across at 3
+  // and 9 o'clock), counted in from the outer edge on each side, that the
+  // band's curved edges cut through. Same layout as the camera's texture in
+  // comp2/sim/render.py; odd squares are light.
+  const sq = band / rows;
+  const cells = Math.ceil(rOut / sq);
   for (const side of [1, -1]) {
-    for (let i = 0; i < n; i++) {
-      const a0 = half + ((180 - 2 * half) * i) / n;
-      const a1 = half + ((180 - 2 * half) * (i + 1)) / n;
-      for (let k = 0; k < rows; k++) {
-        const ra = rOut - (band * k) / rows, rb = rOut - (band * (k + 1)) / rows;
-        const colour = (i + k) % 2 ? colours.light : colours.dark;
-        if (side > 0) sector(a0, a1, ra, rb, colour);
-        else sector(-a1, -a0, ra, rb, colour);
+    ctx.save();
+    if (side > 0) sectorPath(half, 180 - half, rOut, rIn);
+    else sectorPath(-(180 - half), -half, rOut, rIn);
+    ctx.clip();
+    // dark underneath, light squares on top: no seams between neighbours
+    ctx.fillStyle = colours.dark;
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = colours.light;
+    for (let i = 0; i < cells; i++) {
+      const x = side > 0 ? c + rOut - (i + 1) * sq : c - rOut + i * sq;
+      for (let j = -cells; j < cells; j++) {
+        if (Math.abs(i + j) % 2 === 1) ctx.fillRect(x, c - (j + 1) * sq, sq, sq);
       }
     }
+    ctx.restore();
   }
   const segment = deg(2 * half); // one orange segment, radians
 
