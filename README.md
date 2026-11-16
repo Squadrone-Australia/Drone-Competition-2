@@ -23,7 +23,8 @@ This app gives every team the same flight environment:
 
 The platform ships **no gate detector** — vision-based gate perception is your
 team's core task. `drone.frame()` hands you the raw BGR image; what you do
-with it is the competition.
+with it is the competition. To train or test a detector, start from the
+[gate dataset](#gate-dataset): labelled pictures of the gate from a real Tello.
 
 ## Quick start
 
@@ -245,6 +246,31 @@ terminal instead of ending the flight; and `with Drone() as drone:` makes a
 crash, Ctrl+C or the program ending centre the sticks and land the drone. The
 client connects to `ws://127.0.0.1:8765/ws` unless you pass a URL or set
 `SQUADRONE_URL`.
+
+## Gate dataset
+
+Real Tello camera frames of the competition's ring gate, labelled for gate
+detection and pose estimation. Download `iconip2026-gates-v1.0.zip` (about
+240 MB) from the
+[dataset-v1.0 release](https://github.com/Squadrone-Australia/Drone-Competition-2/releases/tag/dataset-v1.0).
+The release page describes the layout and the label format in full.
+
+- 2,347 frames at 960×720: 1,794 for training, 353 for validation and 200 for
+  testing. 339 of them have no gate in view.
+- Two venues: an indoor room, in good and dim light, and the netted drone cage.
+- Each gate has a bounding box and nine keypoints, in YOLO pose and COCO
+  Keypoints formats. Fit the keypoints to `gate_spec.json` (the gate's 3D
+  points) with PnP to get range, sideways offset and yaw.
+- `camera/tello_camera.json` is the Tello's measured camera calibration. Use it
+  for range: the nominal field of view gives ranges about 30% short.
+- Left and right are as the camera sees the ring. If you flip images to
+  augment, reorder the keypoints with the `flip_idx` in `data.yaml`, or every
+  label is silently wrong.
+- Seven clips hover at tape-measured distances from 0.5 to 3.0 m, so you can
+  check your range estimate.
+
+To collect pictures of your own, `examples/03_pilot.py` records the raw camera
+while you fly.
 
 ## Tracks
 
