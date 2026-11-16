@@ -198,6 +198,11 @@ class Appearance:
     # the same place either way.
     mount: str = "stand"
     seed: int = 0
+    # The library entry each component was drawn from, as (library, name)
+    # pairs, so the cockpit's menus can show what a preset or Randomize picked.
+    # The specs above cannot say: two entries may share a spec, and the light's
+    # intensity is applied on top of its entry.
+    parts: tuple[tuple[str, str], ...] = ()
 
     @property
     def is_clean(self) -> bool:
@@ -419,6 +424,7 @@ def compose(
         imaging=IMAGING[imaging],
         mount=MOUNTS[mount],
         seed=seed,
+        parts=tuple(picked.items()),
     )
 
 
@@ -440,7 +446,9 @@ def randomize(seed: int | None = None) -> Appearance:
     )
 
 
-CLEAN = Appearance(name="clean")
+# compose()'s defaults are the plain look, so this is Appearance(name="clean")
+# plus the menu names that describe it.
+CLEAN = compose("clean")
 CAGE = compose(
     "cage",
     floor="varnished_wood",

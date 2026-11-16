@@ -6,6 +6,7 @@ import time
 from ..drone.base import DroneAdapter
 from . import arena, track
 from .disturbance import Gusts
+from .flight_error import PROFILES, FlightError, resolve
 from .imaging import ImagingModel
 from .render import build_scenery, draw_minimap, render, render_focal
 from .world import (
@@ -42,22 +43,17 @@ MOVE_SPEED_MS = 0.5
 TURN_RATE_DPS = 100.0
 REALTIME_DELAY_S = 0.3
 
-# How far the aircraft wanders off its commanded path, per unit of `noise`.
-GUST_SCALE_M = 1.0
-# A real Tello does not stop at the same height twice. Per unit of `noise`,
-# as a fraction of TAKEOFF_ALT_M, clamped to what the airframe actually does.
-TAKEOFF_SPREAD = 4.0
+# A real Tello does not stop at the same height twice, but it stays within this.
 TAKEOFF_MIN_M, TAKEOFF_MAX_M = 0.70, 1.30
-# Heading error per rotate(), in degrees per unit of `noise`. Chosen so that
-# --noise 0.05, the value the CLI help suggests, keeps the 2 deg sigma this
-# had before it was made to scale.
-YAW_NOISE_DEG = 40.0
 # The Tello reports height as whole centimetres, so a controller reading it
 # never sees finer than that however still the air is.
 HEIGHT_QUANTUM_CM = 1.0
 # Motion blur is smeared over the shutter's open time, not the whole frame
-# interval — the Tello's exposure in a lit hall is a small fraction of it.
-EXPOSURE_FRACTION = 0.12
+# interval: the Tello's exposure in a lit hall is about 4 ms, an eighth of its
+# 30 fps frame. Fixed in seconds rather than as a share of whatever interval the
+# server happens to ask for frames at, so the blur a detector is tuned against
+# does not change with the laptop's speed.
+EXPOSURE_S = 0.004
 # Translation only smears in proportion to how near the scene is. Using the
 # cage's typical working distance keeps this a plain scalar instead of needing
 # a depth buffer the renderer does not have.
@@ -92,10 +88,14 @@ class SimDrone(DroneAdapter):
         seed=None,
         track_name="circuit1_oval",
         arena_name="cage",
+        flight="ideal",
     ):
         self.track_name = world.name if world is not None else track_name
         self.world = world if world is not None else track.build(track_name)
         self.noise = noise
+        self.flight_profile = resolve(flight, noise)
+        # A scaled `noise` is not one of the named profiles the cockpit lists.
+        self.flight_name = "custom" if noise else flight
         self.delay = delay
         self._seed = seed
         self.arena_name = arena_name
@@ -107,16 +107,23 @@ class SimDrone(DroneAdapter):
     def reset(self):
         """Back on the takeoff pad, landed, sticks centred."""
         self._mission_pads_enabled = False
-        self._rng = random.Random(self._seed)
         seed = 0 if self._seed is None else self._seed
-        # The air, the camera and the scenery are all redrawn from the same
-        # seed, so a run can be replayed exactly.
-        self._gusts = Gusts(seed, scale=self.noise * GUST_SCALE_M)
+        # An explicit seed replays a run exactly. Without one the room still
+        # looks the same each time, but the air and the aircraft's errors do not.
+        flight_seed = (
+            random.SystemRandom().randrange(2**32) if self._seed is None else self._seed
+        )
+        profile = self.flight_profile
+        self._gusts = Gusts(
+            flight_seed, scale=profile.gust_m, slow_scale=profile.slow_drift_m
+        )
+        self._errors = FlightError(profile, flight_seed + 1)
         self._imaging = ImagingModel(self.world.appearance.imaging, seed)
         self.world.scenery = build_scenery(self.world.appearance, self.world, seed)
         self._flight_t = 0.0
         self._takeoff_alt = TAKEOFF_ALT_M
         self._last_view = None
+        self._last_frame_at = None
         with self._rc_lock:
             self._rc_target = (0.0, 0.0, 0.0, 0.0)  # lr, fb, ud, yaw in -1..1
             self._vel = [0.0, 0.0, 0.0, 0.0]  # body-frame lr, fb, ud, yaw dps
@@ -197,24 +204,24 @@ class SimDrone(DroneAdapter):
 
     def takeoff(self):
         self._abort = False
-        z0 = self.z
+        x0, y0, z0 = self.x, self.y, self.z
         # A real Tello settles wherever its downward sensor and the air agree,
-        # which is not the same height twice. A program that assumes it is at
-        # exactly a metre after takeoff is relying on something hardware will
-        # not give it.
-        self._takeoff_alt = TAKEOFF_ALT_M
-        if self.noise:
-            spread = TAKEOFF_ALT_M * self.noise * TAKEOFF_SPREAD
-            self._takeoff_alt = min(
-                TAKEOFF_MAX_M,
-                max(TAKEOFF_MIN_M, self._rng.gauss(TAKEOFF_ALT_M, spread)),
-            )
+        # which is not the same height twice, and it does not climb straight.
+        # A program that assumes it is at exactly a metre above the pad after
+        # takeoff is relying on something hardware will not give it.
+        self._errors.begin_flight()
+        shift_x, shift_y, height_error = self._errors.takeoff()
+        self._takeoff_alt = min(
+            TAKEOFF_MAX_M, max(TAKEOFF_MIN_M, TAKEOFF_ALT_M + height_error)
+        )
         target = self._takeoff_alt
         self.flying = True  # props spin for the whole climb
-        self._animate(
-            lambda t: setattr(self, "z", z0 + (target - z0) * t),
-            self._move_duration(abs(target - z0)),
-        )
+
+        def step(t):
+            self.x, self.y = self._clamp_xy(x0 + shift_x * t, y0 + shift_y * t)
+            self.z = z0 + (target - z0) * t
+
+        self._animate(step, self._move_duration(abs(target - z0)))
 
     def _stop_rc(self):
         """Discrete commands own the pose outright: kill the setpoint AND the
@@ -246,43 +253,49 @@ class SimDrone(DroneAdapter):
         self._require_flying()
         self._stop_rc()
         dist = cm / 100.0
-        if self.noise:
-            dist += self._rng.gauss(0, self.noise * dist)
+        # Body-frame unit of travel in plan, with how it leans the airframe.
+        unit_f, unit_r, lean_pitch, lean_roll = {
+            "forward": (1.0, 0.0, LEAN_DEG, 0.0),
+            "back": (-1.0, 0.0, -LEAN_DEG, 0.0),
+            "right": (0.0, 1.0, 0.0, LEAN_DEG),
+            "left": (0.0, -1.0, 0.0, -LEAN_DEG),
+        }.get(direction, (1.0, 0.0, 0.0, 0.0))
+        climb = {"up": dist, "down": -dist}.get(direction, 0.0)
+        travel = 0.0 if climb else dist
+        err = self._errors.translation(travel, climb)
+        forward = unit_f * (travel + err.along_m) - unit_r * err.lateral_m
+        right = unit_r * (travel + err.along_m) + unit_f * err.lateral_m
+        up = climb + err.vertical_m
+
         h = math.radians(self.heading)
         fx, fy = math.sin(h), math.cos(h)  # forward
         rx, ry = math.cos(h), -math.sin(h)  # right
-        x0, y0, z0 = self.x, self.y, self.z
-        dx = dy = dz = 0.0
-        lean_pitch = lean_roll = 0.0
-        if direction == "forward":
-            dx, dy, lean_pitch = fx * dist, fy * dist, LEAN_DEG
-        elif direction == "back":
-            dx, dy, lean_pitch = -fx * dist, -fy * dist, -LEAN_DEG
-        elif direction == "right":
-            dx, dy, lean_roll = rx * dist, ry * dist, LEAN_DEG
-        elif direction == "left":
-            dx, dy, lean_roll = -rx * dist, -ry * dist, -LEAN_DEG
-        elif direction == "up":
-            dz = min(self._max_alt, z0 + dist) - z0
-        elif direction == "down":
-            dz = max(MIN_ALT_M, z0 - dist) - z0
+        x0, y0, z0, h0 = self.x, self.y, self.z, self.heading
+        dx = forward * fx + right * rx
+        dy = forward * fy + right * ry
+        dz = 0.0
+        if up > 0:
+            dz = min(self._max_alt, z0 + up) - z0
+        elif up < 0:
+            dz = max(MIN_ALT_M, z0 + up) - z0
 
         def step(t):
             self.x, self.y = self._clamp_xy(x0 + dx * t, y0 + dy * t)
             self.z = z0 + dz * t
+            if err.heading_deg:
+                self.heading = (h0 + err.heading_deg * t) % 360
             # tip into the move and level out again — a quadcopter that translates
             # perfectly flat looks like a lift, not a drone
             tilt = math.sin(math.pi * t)
             self.pitch, self.roll = lean_pitch * tilt, lean_roll * tilt
 
-        self._animate(step, self._move_duration(abs(dist)))
+        self._animate(step, self._move_duration(dist))
         self.pitch = self.roll = 0.0
 
     def rotate(self, direction, deg):
         self._require_flying()
         self._stop_rc()
-        if self.noise:
-            deg += self._rng.gauss(0, self.noise * YAW_NOISE_DEG)
+        deg += self._errors.rotation(deg)
         h0 = self.heading
         turn = deg if direction == "cw" else -deg
         self._animate(
@@ -342,11 +355,12 @@ class SimDrone(DroneAdapter):
                     self._vel = [0.0, 0.0, 0.0, 0.0]
                 continue
             k = min(1.0, dt / RC_TAU_S)
+            gain = self._errors.rc_gain
             goal = (
-                target[0] * RC_MAX_SPEED_MS,
-                target[1] * RC_MAX_SPEED_MS,
-                target[2] * RC_MAX_SPEED_MS,
-                target[3] * RC_MAX_YAW_DPS,
+                target[0] * gain[0] * RC_MAX_SPEED_MS,
+                target[1] * gain[1] * RC_MAX_SPEED_MS,
+                target[2] * gain[2] * RC_MAX_SPEED_MS,
+                target[3] * gain[3] * RC_MAX_YAW_DPS,
             )
             vel = [v + (g - v) * k for v, g in zip(vel, goal, strict=True)]
             with self._rc_lock:
@@ -386,17 +400,23 @@ class SimDrone(DroneAdapter):
             pts.append(tuple(2 * t * (1 - t) * p1[a] + t * t * p2[a] for a in range(3)))
         self._fly_path(pts, speed_cms / 100.0)
 
-    def _fly_path(self, body_points, speed_ms):
+    def _fly_path(self, body_points, speed_ms, exact=False):
         """Animate along body-frame waypoints at constant speed, no stop-start
-        easing — this is the smooth pathway."""
+        easing — this is the smooth pathway.
+
+        ``exact`` is for manoeuvres the aircraft closes the loop on itself.
+        """
         h = math.radians(self.heading)
         fx, fy = math.sin(h), math.cos(h)
         rx, ry = math.cos(h), -math.sin(h)
-        x0, y0, z0 = self.x, self.y, self.z
+        x0, y0, z0, h0 = self.x, self.y, self.z, self.heading
         world_pts = [
             (x0 + fwd * fx - left * rx, y0 + fwd * fy - left * ry, z0 + up)
             for fwd, left, up in body_points
         ]
+        heading_error = 0.0
+        if not exact:
+            world_pts, heading_error = self._perturb_path((x0, y0, z0), world_pts, h)
         length = 0.0
         prev = (x0, y0, z0)
         legs = []
@@ -410,6 +430,8 @@ class SimDrone(DroneAdapter):
         duration = length / max(speed_ms, 0.1)
 
         def step(t):
+            if heading_error:
+                self.heading = (h0 + heading_error * t) % 360
             s = t * length
             for s0, s1, a, b in legs:
                 if s <= s1 or (s0, s1, a, b) is legs[-1]:
@@ -423,6 +445,40 @@ class SimDrone(DroneAdapter):
                     return
 
         self._animate(step, duration, ease=lambda t: t)
+
+    def _perturb_path(self, start, world_pts, heading_rad):
+        """The path actually flown: the end error, blended in along arc length.
+
+        Growing from nothing at the start, so the aircraft never jumps off the
+        path it was on.
+        """
+        lengths = []
+        horizontal = total = 0.0
+        prev = start
+        for p in world_pts:
+            horizontal += math.dist(prev[:2], p[:2])
+            total += math.dist(prev, p)
+            lengths.append(total)
+            prev = p
+        if total <= 1e-6:
+            return world_pts, 0.0
+        err = self._errors.translation(horizontal, world_pts[-1][2] - start[2])
+        chord_x, chord_y = world_pts[-1][0] - start[0], world_pts[-1][1] - start[1]
+        chord = math.hypot(chord_x, chord_y)
+        if chord > 1e-6:
+            along_x, along_y = chord_x / chord, chord_y / chord
+        else:
+            along_x, along_y = math.sin(heading_rad), math.cos(heading_rad)
+        error_x = err.along_m * along_x + err.lateral_m * along_y
+        error_y = err.along_m * along_y - err.lateral_m * along_x
+        return [
+            (
+                p[0] + error_x * s / total,
+                p[1] + error_y * s / total,
+                p[2] + err.vertical_m * s / total,
+            )
+            for p, s in zip(world_pts, lengths, strict=True)
+        ], err.heading_deg
 
     # --- sensing -----------------------------------------------------------
 
@@ -468,19 +524,28 @@ class SimDrone(DroneAdapter):
                 )
             ],
             speed / 100,
+            exact=True,
         )
 
     def get_frame(self):
         x, y, z = self._observed()
+        now = time.monotonic()
         frame = render(self.world, x, y, z, self.heading)
-        # How far the scene slid since the last frame, in pixels — what smears
-        # it. Measured from the view actually rendered, so a gust blurs the
-        # picture exactly as much as it moved the aircraft.
+        # The camera runs on the clock, not on how often it is asked: the
+        # exposure and white balance wander at the same real speed whether the
+        # server reads 30 frames a second or 7.
+        dt = 0.0 if self._last_frame_at is None else now - self._last_frame_at
+        self._last_frame_at = now
+        # How far the scene slides while the shutter is open, in pixels — what
+        # smears it. Measured from the view actually rendered, so a gust blurs
+        # the picture exactly as much as it moved the aircraft; scaled from the
+        # slide since the last frame down to the exposure, and never past it,
+        # since a shutter cannot stay open longer than the gap between frames.
         motion = (0.0, 0.0)
         view = (x, y, z, self.heading)
-        if self._last_view is not None:
+        if self._last_view is not None and dt > 0:
             px, py, pz, ph = self._last_view
-            focal = render_focal(frame.shape[1]) * EXPOSURE_FRACTION
+            focal = render_focal(frame.shape[1]) * min(1.0, EXPOSURE_S / dt)
             yaw = math.radians((self.heading - ph + 180) % 360 - 180)
             slide = math.hypot(x - px, y - py) / BLUR_DEPTH_M
             motion = (
@@ -488,7 +553,7 @@ class SimDrone(DroneAdapter):
                 abs(focal * (z - pz) / BLUR_DEPTH_M),
             )
         self._last_view = view
-        self._imaging.advance(1.0 / ANIM_FPS)
+        self._imaging.advance(dt)
         return self._imaging.apply(frame, motion_px=motion)
 
     def height_cm(self) -> float:
@@ -586,6 +651,18 @@ class SimDrone(DroneAdapter):
 
     def arena_catalog(self):
         return arena.catalog()
+
+    def flight_catalog(self):
+        return list(PROFILES)
+
+    def load_flight(self, name):
+        """Switch how accurately the aircraft flies; back on the pad to do it."""
+        self.flight_profile = resolve(
+            name
+        )  # refuses a bad name before changing anything
+        self.flight_name = name
+        self.noise = 0.0
+        self.reset()
 
     def load_arena(self, name=None, **parts):
         """Switch the look: a preset by name, or one entry per library."""

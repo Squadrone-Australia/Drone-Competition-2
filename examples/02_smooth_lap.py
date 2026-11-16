@@ -21,8 +21,7 @@ of the two long straights (y = 3.0 out, y = 1.0 back).
 
 Nothing here is closed-loop: it is dead reckoning, tuned against the published
 geometry, and it drifts the moment the drone does. Every number is one to
-re-derive — and to back up with the camera (03_vision_gate.py) once you trust
-the shape of the lap.
+re-derive — and to back up with the camera once you trust the shape of the lap.
 """
 
 from squadrone import Drone

@@ -209,6 +209,111 @@ function showFrame(blob) {
   cameraStateEl.lastElementChild.textContent = "live";
 }
 
+// --- version notices ------------------------------------------------------
+// The server sends "update_available" when GitHub's main has commits this copy
+// lacks, and "updated" (once per update) with what the last update changed.
+// Both are re-sent on every reconnect, so a closed one is remembered by the
+// newest commit it listed: the same news stays closed, newer news shows again.
+
+const updateNoticesEl = document.getElementById("update-notices");
+const DISMISSED_KEY = "comp2.dismissedUpdates";
+const shownUpdates = new Map();
+
+function dismissedUpdates() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(DISMISSED_KEY) || "[]"));
+  } catch {
+    return new Set();
+  }
+}
+
+function rememberDismissed(key) {
+  const keys = dismissedUpdates();
+  keys.add(key);
+  try {
+    localStorage.setItem(DISMISSED_KEY, JSON.stringify([...keys].slice(-20)));
+  } catch {
+    // Private window or blocked storage: it stays closed until a reload.
+  }
+}
+
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+
+function plural(n, word) {
+  return `${n} ${word}${n === 1 ? "" : "s"}`;
+}
+
+function showUpdateNotice(msg) {
+  const commits = Array.isArray(msg.commits) ? msg.commits : [];
+  if (!commits.length) return;
+  const key = `${msg.type}:${commits[0].sha}`;
+  if (shownUpdates.get(msg.type)?.key === key) return;  // a reconnect re-sent it
+  shownUpdates.get(msg.type)?.node?.remove();
+
+  const available = msg.type === "update_available";
+  const total = Math.max(msg.total || 0, commits.length);
+  const title = available
+    ? `A newer COMP2 is available (${plural(total, "change")})`
+    : `COMP2 was updated (${plural(total, "change")})`;
+  const hint = available
+    ? "Stop COMP2 (Ctrl+C in its window), then start it again with Start COMP2 to update."
+    : `Now on version ${msg.to}, from ${msg.from}. Here is what changed.`;
+  log(available ? `${title}. ${hint}` : `${title}: now ${msg.to}, was ${msg.from}.`);
+  if (dismissedUpdates().has(key)) {
+    shownUpdates.set(msg.type, { key, node: null });
+    return;
+  }
+
+  const node = el("section", `update-notice ${available ? "available" : "updated"}`);
+  node.setAttribute("aria-label", title);
+  const head = el("div", "update-head");
+  const text = el("div", "update-text");
+  text.append(el("div", "update-title", title), el("div", "update-hint", hint));
+  const list = el("ol", "update-list");
+  for (const commit of commits) {
+    const item = el("li");
+    const details = el("details");
+    const summary = el("summary", commit.body ? "" : "plain", commit.subject);
+    summary.append(el("span", "update-sha", commit.sha));
+    details.append(summary);
+    if (commit.body) details.append(el("div", "update-body", commit.body));
+    item.append(details);
+    list.append(item);
+  }
+  if (total > commits.length) {
+    list.append(el("li", "update-more", `and ${plural(total - commits.length, "earlier change")}`));
+  }
+  // The changelog after an update is the point, so it opens; news of an update
+  // not yet installed stays a single line until asked for.
+  list.hidden = available;
+  const toggle = el("button", "", available ? "What's new" : "Hide list");
+  toggle.type = "button";
+  toggle.onclick = () => {
+    list.hidden = !list.hidden;
+    toggle.textContent = list.hidden ? "What's new" : "Hide list";
+  };
+  const close = el("button", "", "Close");
+  close.type = "button";
+  close.title = "Hide this until there is newer news";
+  close.onclick = () => {
+    rememberDismissed(key);
+    node.remove();
+    shownUpdates.set(msg.type, { key, node: null });
+  };
+  head.append(text, toggle, close);
+  node.append(head, list);
+  // Newest news first: the changelog of the running version sits under news
+  // of the next one.
+  if (available) updateNoticesEl.prepend(node);
+  else updateNoticesEl.append(node);
+  shownUpdates.set(msg.type, { key, node });
+}
+
 function connect() {
   const protocol = location.protocol === "https:" ? "wss" : "ws";
   ws = new WebSocket(`${protocol}://${location.host}/ws`);
@@ -262,6 +367,8 @@ function connect() {
         ? `WARNING: ${msg.message || "EMERGENCY STOP did not reach the drone"}`
         : "EMERGENCY STOP");
       setRunning(false);
+    } else if (msg.type === "update_available" || msg.type === "updated") {
+      showUpdateNotice(msg);
     } else if (msg.type === "reset") {
       lastRaceState = null;
       log(msg.repositioned

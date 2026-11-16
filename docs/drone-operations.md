@@ -16,6 +16,13 @@ Both APIs send commands to the drone selected in the Squadrone cockpit. They
 have the same flight operations and use centimetres, degrees, seconds, and
 stick percentages as described below.
 
+The simulator flies like a real Tello by default: takeoff height varies, the
+aircraft drifts while hovering, and every move ends slightly off target, by
+more over longer distances. Use **Flight accuracy** in the cockpit's Arena panel
+to change the conditions (`good`, `poor`, or `ideal` to fly exactly as
+commanded), or start with `python -m comp2 --flight poor`. The error sizes are
+estimates, so do not tune a program to their exact values.
+
 ## Constructing a `Drone`
 
 ```python
@@ -430,3 +437,4 @@ its intent is explicit.
   closed-loop camera example, debugging advice and troubleshooting.
 - `examples/01_first_lap.py` (discrete commands) and `examples/02_smooth_lap.py`
   (continuous control).
+- `examples/03_pilot.py`: fly by keyboard, and record the camera while you do.

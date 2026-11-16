@@ -7,7 +7,9 @@ from fastapi.testclient import TestClient
 
 from comp2.drone.mock import MockDrone
 from comp2.server import create_app
+from comp2.sim import arena
 from comp2.sim.drone import SimDrone
+from comp2.sim.flight_error import PROFILES
 from comp2.sim.world import Gate, World
 
 
@@ -80,6 +82,30 @@ def test_video_frames_are_jpeg_and_raw():
     with TestClient(app) as client, client.websocket_connect("/ws") as ws:
         frame = collect_until(ws, "frame")
         assert frame[:2] == b"\xff\xd8"  # JPEG magic
+
+
+def test_the_camera_is_read_slowly_while_nothing_watches_it():
+    """Rendering the cage at full rate for nobody kept a whole core busy; but a
+    page that connects must get the full rate again straight away."""
+    import time
+
+    reads = []
+    drone = MockDrone(
+        frame_factory=lambda: (
+            reads.append(time.monotonic()) or np.zeros((480, 640, 3), np.uint8)
+        )
+    )
+    app = create_app(drone)
+    with TestClient(app) as client:
+        time.sleep(1.0)
+        idle = len(reads)
+        with client.websocket_connect("/ws") as ws:
+            collect_until(ws, "frame")
+            start = len(reads)
+            time.sleep(1.0)
+            watched = len(reads) - start
+    assert idle <= 4  # every IDLE_FRAME_INTERVAL, give or take the first read
+    assert watched >= 10
 
 
 def test_scene_is_sent_once_on_connect():
@@ -579,19 +605,47 @@ def test_arena_catalog_is_offered_and_switchable(tmp_path):
         catalog = _await_message(ws, "arena")
         assert "floor" in catalog["catalog"]["libraries"]
         assert catalog["current"]["name"] == "clean"
+        assert catalog["current"]["parts"]["floor"] == "studio_grey"
 
         ws.send_json({"type": "arena", "name": "cage"})
-        assert _await_message(ws, "arena")["current"]["name"] == "cage"
+        cage = _await_message(ws, "arena")["current"]
+        assert cage["name"] == "cage"
+        assert cage["parts"]["floor"] == "varnished_wood"
         assert drone.world.appearance.net is not None
 
         ws.send_json({"type": "arena", "randomize": True, "seed": 5})
-        assert _await_message(ws, "arena")["current"]["name"] == "random"
+        current = _await_message(ws, "arena")["current"]
+        assert current["name"] == "random"
+        # Every menu the cockpit shows is told what Randomize drew, so the
+        # dropdowns can follow it instead of keeping the previous picks.
+        expected = dict(arena.randomize(5).parts)
+        assert current["parts"] == expected
+        assert set(expected) == set(arena.catalog()["libraries"])
 
         ws.send_json(
             {"type": "arena", "parts": {"floor": "grey_sports", "hall": "lab"}}
         )
         _await_message(ws, "arena")
         assert drone.world.appearance.hall is not None
+
+
+def test_flight_accuracy_is_offered_and_switchable():
+    drone = SimDrone(delay=0, arena_name="clean", flight="typical")
+    app = create_app(drone)
+    with TestClient(app) as client, client.websocket_connect("/ws") as ws:
+        first = _await_message(ws, "arena")["flight"]
+        assert first == {
+            "options": ["ideal", "good", "typical", "poor"],
+            "current": "typical",
+        }
+
+        ws.send_json({"type": "arena", "flight": "poor"})
+        assert _await_message(ws, "arena")["flight"]["current"] == "poor"
+        assert drone.flight_profile is PROFILES["poor"]
+
+        ws.send_json({"type": "arena", "flight": "stormy"})
+        assert "stormy" in _await_message(ws, "error")["message"]
+        assert drone.flight_name == "poor"
 
 
 def _await_message(ws, kind, limit=400):

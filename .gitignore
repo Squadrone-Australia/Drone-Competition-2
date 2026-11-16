@@ -16,3 +16,8 @@ dist/
 /Start COMP2.command
 /start-comp2.sh
 /.comp2-version
+# Written by comp2/updates.py: the version whose changelog was last shown
+/.comp2-last-run
+
+# examples/pilot.py writes its videos and snapshots here by default
+/recordings/

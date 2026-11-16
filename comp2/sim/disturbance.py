@@ -46,6 +46,13 @@ import random
 MIN_HZ = 0.05
 MAX_HZ = 0.40
 COMPONENTS = 3  # sinusoids per axis
+# The aircraft's position estimate creeping over a lap. Bounded and band-limited
+# like everything else here, but slow enough to read as drift, not as wobble.
+SLOW_MIN_HZ = 0.008
+SLOW_MAX_HZ = 0.04
+# Height is measured against the floor, so it creeps less than the plan position
+# does, which has nothing absolute to hold on to.
+SLOW_VERTICAL = 0.5
 
 
 class Gusts:
@@ -54,10 +61,19 @@ class Gusts:
     ``scale`` is the approximate peak excursion in metres per axis. ``vertical``
     scales the z axis separately: on a real Tello the barometric altitude hold
     wanders further, and slower, than the horizontal position does.
+    ``slow_scale`` adds the slower creep on top.
     """
 
-    def __init__(self, seed: int = 0, scale: float = 0.0, vertical: float = 1.6):
+    def __init__(
+        self,
+        seed: int = 0,
+        scale: float = 0.0,
+        vertical: float = 1.6,
+        slow_scale: float = 0.0,
+    ):
         self.scale = scale
+        self.slow_scale = slow_scale
+        self._active = scale > 0 or slow_scale > 0
         rng = random.Random(seed)
         self._axes = []
         for axis in range(3):
@@ -73,10 +89,21 @@ class Gusts:
                     for _ in range(COMPONENTS)
                 ]
             )
+        # Drawn after the faster components so adding creep does not reshuffle them.
+        for axis in range(3):
+            amp = slow_scale * (SLOW_VERTICAL if axis == 2 else 1.0) / COMPONENTS
+            self._axes[axis].extend(
+                (
+                    rng.uniform(SLOW_MIN_HZ, SLOW_MAX_HZ),
+                    rng.uniform(0.0, 2 * math.pi),
+                    amp * rng.uniform(0.6, 1.4),
+                )
+                for _ in range(COMPONENTS)
+            )
 
     def offset(self, t: float) -> tuple[float, float, float]:
         """Displacement from the commanded position, in metres."""
-        if self.scale <= 0:
+        if not self._active:
             return (0.0, 0.0, 0.0)
         return tuple(
             sum(a * math.sin(2 * math.pi * f * t + p) for f, p, a in axis)
@@ -85,7 +112,7 @@ class Gusts:
 
     def velocity(self, t: float) -> tuple[float, float, float]:
         """The analytic derivative — what the camera sees as motion blur."""
-        if self.scale <= 0:
+        if not self._active:
             return (0.0, 0.0, 0.0)
         return tuple(
             sum(

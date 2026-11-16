@@ -457,23 +457,28 @@ function buildGate(g, index, tubeM, look, ring, hang = {}) {
   frame.rotation.y = Math.PI - yaw;
 
   // The face: painted as seen from the approach side, which looks along +Z at
-  // the ring's back, so the mesh is turned to face it.
+  // the ring's back, so the mesh is turned to face it. The real ring is printed
+  // on both faces and reads correctly from either, so the far side is a second
+  // mesh turned the other way, not the back of the first: a double-sided face
+  // would show the print mirrored, as the simulator's camera no longer does.
   const paint = ringTexture(colours, rIn / rOut, ring);
-  const face = new THREE.Mesh(
-    new THREE.RingGeometry(rIn, rOut, 96, 1),
-    new THREE.MeshStandardMaterial({
-      map: paint,
-      emissive: 0xffffff,
-      emissiveMap: paint,
-      emissiveIntensity: 0.35,
-      roughness: 0.8,
-      side: THREE.DoubleSide,
-      transparent: true,
-    }),
-  );
-  face.rotation.y = Math.PI;
-  face.castShadow = true;
-  frame.add(face);
+  for (const turn of [Math.PI, 0]) {
+    const face = new THREE.Mesh(
+      new THREE.RingGeometry(rIn, rOut, 96, 1),
+      new THREE.MeshStandardMaterial({
+        map: paint,
+        emissive: 0xffffff,
+        emissiveMap: paint,
+        emissiveIntensity: 0.35,
+        roughness: 0.8,
+        side: THREE.FrontSide,
+        transparent: true,
+      }),
+    );
+    face.rotation.y = turn;
+    face.castShadow = true;
+    frame.add(face);
+  }
   const halo = new THREE.Mesh(
     new THREE.RingGeometry(rOut + 0.01, rOut + 0.03, 96, 1),
     mat,
@@ -526,13 +531,41 @@ function buildGate(g, index, tubeM, look, ring, hang = {}) {
   return { group, mat };
 }
 
+// The bottom segment's print is the Squadrone mark itself (icon, rule and
+// wordmark), recoloured to the print colour, over its strapline. Loaded once
+// and shared; the ring is painted without it until it arrives.
+const LOGO_SRC = "assets/squadrone-logo.webp";
+// The mark's parts in the asset's own pixels (520 x 181): the node-graph icon,
+// the vertical rule, and the "Squadrone" wordmark's ink.
+const LOGO_ICON = [0, 0, 184, 181];
+const LOGO_RULE = [207, 0, 3, 181];
+const LOGO_WORD = [221, 60, 300, 64];
+const SLOGAN = "Unlocking minds, defying gravity";
+let logoLoad = null;
+
+function loadLogo() {
+  if (typeof Image === "undefined") return null; // no DOM (node tests)
+  if (!logoLoad) {
+    logoLoad = new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => resolve(img);
+      img.onerror = () => resolve(null);
+      img.src = LOGO_SRC;
+    });
+  }
+  return logoLoad;
+}
+
 /** The ring's face, painted on a canvas: the same layout the simulator's
  * camera texture uses (angles clockwise from 12 o'clock as seen from the
- * approach side), so what the 3D view shows is what the video shows. */
+ * approach side), so what the 3D view shows is what the video shows. The
+ * print follows the physical ring: the web address in letters about half the
+ * band tall across most of the top segment, and under the bottom the
+ * Squadrone mark with "Unlocking minds, defying gravity" beneath the name. */
 function ringTexture(colours, innerRatio, ring) {
   const half = (ring && ring.orange_half_angle_deg) ?? GATE_ORANGE_HALF_ANGLE_DEG;
   const rows = (ring && ring.checker_rows) ?? GATE_CHECKER_ROWS;
-  const size = 512;
+  const size = 1024;
   const canvas = document.createElement("canvas");
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext("2d");
@@ -540,55 +573,125 @@ function ringTexture(colours, innerRatio, ring) {
   const band = rOut - rIn;
   // canvas angles start at 3 o'clock and run clockwise on screen
   const at = (theta) => deg(theta - 90);
-  const sector = (a0, a1, ra, rb, colour) => {
+  const sectorPath = (a0, a1, ra, rb) => {
     ctx.beginPath();
     ctx.arc(c, c, ra, at(a0), at(a1));
     ctx.arc(c, c, rb, at(a1), at(a0), true);
     ctx.closePath();
+  };
+  const sector = (a0, a1, ra, rb, colour) => {
+    sectorPath(a0, a1, ra, rb);
     ctx.fillStyle = colour;
     ctx.fill();
   };
   for (const centre of [0, 180]) sector(centre - half, centre + half, rOut, rIn, colours.orange);
   const mid = (rOut + rIn) / 2;
-  const n = Math.max(1, Math.round((mid * deg(180 - 2 * half)) / (band / rows)));
+  // The checker is cut from flat checkered fabric, not printed along the band:
+  // an upright grid of squares a quarter of the band wide (four across at 3
+  // and 9 o'clock), counted in from the outer edge on each side, that the
+  // band's curved edges cut through. Same layout as the camera's texture in
+  // comp2/sim/render.py; odd squares are light.
+  const sq = band / rows;
+  const cells = Math.ceil(rOut / sq);
   for (const side of [1, -1]) {
-    for (let i = 0; i < n; i++) {
-      const a0 = half + ((180 - 2 * half) * i) / n;
-      const a1 = half + ((180 - 2 * half) * (i + 1)) / n;
-      for (let k = 0; k < rows; k++) {
-        const ra = rOut - (band * k) / rows, rb = rOut - (band * (k + 1)) / rows;
-        const colour = (i + k) % 2 ? colours.light : colours.dark;
-        if (side > 0) sector(a0, a1, ra, rb, colour);
-        else sector(-a1, -a0, ra, rb, colour);
+    ctx.save();
+    if (side > 0) sectorPath(half, 180 - half, rOut, rIn);
+    else sectorPath(-(180 - half), -half, rOut, rIn);
+    ctx.clip();
+    // dark underneath, light squares on top: no seams between neighbours
+    ctx.fillStyle = colours.dark;
+    ctx.fillRect(0, 0, size, size);
+    ctx.fillStyle = colours.light;
+    for (let i = 0; i < cells; i++) {
+      const x = side > 0 ? c + rOut - (i + 1) * sq : c - rOut + i * sq;
+      for (let j = -cells; j < cells; j++) {
+        if (Math.abs(i + j) % 2 === 1) ctx.fillRect(x, c - (j + 1) * sq, sq, sq);
       }
     }
+    ctx.restore();
   }
-  // the print: the web address over the top, the name under the bottom, each
-  // reading left to right with its letters under as seen from the approach
+  const segment = deg(2 * half); // one orange segment, radians
+
+  // Top: the web address, capitals ~0.45 of the band, squeezed if need be to
+  // span 86% of the segment, letter tops toward the outer edge.
+  const font = (px, weight = 600) => `${weight} ${px}px "Segoe UI", system-ui, sans-serif`;
   ctx.fillStyle = colours.print;
   ctx.textAlign = "center";
   ctx.textBaseline = "middle";
-  // `under`: along the bottom, where left to right runs anticlockwise
-  const arcText = (text, centre, radius, px, under) => {
-    ctx.font = `bold ${px}px system-ui, sans-serif`;
-    const step = (ch) => ctx.measureText(ch).width / radius;   // radians per glyph
-    const total = [...text].reduce((s, ch) => s + step(ch), 0);
-    let a = deg(centre) - (under ? -1 : 1) * total / 2;
-    for (const ch of text) {
-      const w = step(ch);
-      a += (under ? -1 : 1) * w / 2;
+  {
+    const text = "SQUADRONE.COM.AU";
+    ctx.font = font(Math.round(band * 0.6));
+    const widths = [...text].map((ch) => ctx.measureText(ch).width);
+    const total = widths.reduce((s, w) => s + w, 0) / mid;
+    const squeeze = Math.min(1, (0.86 * segment) / (total || 1));
+    let a = -(total * squeeze) / 2;
+    [...text].forEach((ch, i) => {
+      const w = (widths[i] / mid) * squeeze;
+      a += w / 2;
       ctx.save();
-      ctx.translate(c + radius * Math.sin(a), c - radius * Math.cos(a));
-      ctx.rotate(under ? a - Math.PI : a);
+      ctx.translate(c + mid * Math.sin(a), c - mid * Math.cos(a));
+      ctx.rotate(a);
+      ctx.scale(squeeze, 1);
       ctx.fillText(ch, 0, 0);
       ctx.restore();
-      a += (under ? -1 : 1) * w / 2;
-    }
-  };
-  arcText("SQUADRONE.COM.AU", 0, mid, Math.round(band * 0.5), false);
-  arcText("Squadrone", 180, mid + band * 0.1, Math.round(band * 0.45), true);
+      a += w / 2;
+    });
+  }
+
   const tex = new THREE.CanvasTexture(canvas);
   tex.anisotropy = 4;
+
+  // Bottom: the mark and strapline laid out flat, upright, then bent along
+  // the band strip by strip. The flat box is the band's width tall, its top
+  // edge on the inner rim, as the print reads to someone standing in front.
+  const bottom = (logo) => {
+    const H = Math.round(band);
+    const h = 0.8 * H;
+    const iconW = (LOGO_ICON[2] / LOGO_ICON[3]) * h;
+    const ruleX = iconW + 0.1 * H;
+    const ruleW = Math.max(2, (LOGO_RULE[2] / LOGO_RULE[3]) * h);
+    const wordX = ruleX + ruleW + 0.1 * H;
+    const wordH = 0.42 * H;
+    const wordW = (LOGO_WORD[2] / LOGO_WORD[3]) * wordH;
+    const W = Math.ceil(wordX + wordW);
+    const flat = document.createElement("canvas");
+    flat.width = W;
+    flat.height = H;
+    const f = flat.getContext("2d");
+    f.drawImage(logo, ...LOGO_ICON, 0, 0.1 * H, iconW, h);
+    f.drawImage(logo, ...LOGO_RULE, ruleX, 0.1 * H, ruleW, h);
+    f.drawImage(logo, ...LOGO_WORD, wordX, 0.1 * H, wordW, wordH);
+    f.font = font(Math.round(0.2 * H), 400);
+    f.textAlign = "left";
+    f.textBaseline = "middle";
+    const sw = f.measureText(SLOGAN).width || 1;
+    const squeeze = Math.min(1, wordW / sw);
+    f.save();
+    f.translate(wordX, 0.75 * H);
+    f.scale(squeeze, 1);
+    f.fillStyle = "#000";
+    f.fillText(SLOGAN, 0, 0);
+    f.restore();
+    // the asset is brand orange: keep its shape, take the print colour
+    f.globalCompositeOperation = "source-in";
+    f.fillStyle = colours.print;
+    f.fillRect(0, 0, W, H);
+    // Bend it: viewer's left (x = 0) is towards 9 o'clock, past 180 degrees.
+    const strips = Math.ceil(W / 2);
+    for (let j = 0; j < strips; j++) {
+      const x0 = (j * W) / strips, x1 = ((j + 1) * W) / strips;
+      const a = Math.PI + (W / 2 - (x0 + x1) / 2) / mid;
+      ctx.save();
+      ctx.translate(c + mid * Math.sin(a), c - mid * Math.cos(a));
+      ctx.rotate(a - Math.PI);
+      const dw = x1 - x0;
+      ctx.drawImage(flat, x0, 0, dw, H, -dw / 2 - 0.5, -H / 2, dw + 1, H);
+      ctx.restore();
+    }
+    tex.needsUpdate = true;
+  };
+  const pending = loadLogo();
+  if (pending) pending.then((logo) => logo && bottom(logo));
   return tex;
 }
 

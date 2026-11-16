@@ -13,19 +13,42 @@ import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from . import overlay
+from . import overlay, updates
 from .api import Drone, EmergencyStop, ScriptRun, Session
 from .drone.base import DroneAdapter
 from .sim.race import RUNNING, RaceScorer
 
+try:
+    from starlette.websockets import WebSocketDisconnected
+except ImportError:  # Starlette before 1.0 raised a bare RuntimeError instead
+    WebSocketDisconnected = RuntimeError
+
+# A peer that vanishes without a close frame (killed, crashed, Wi-Fi gone) is
+# usually noticed first by one of our sends: the video, say. That marks the
+# socket closed, and the next receive then raises WebSocketDisconnected rather
+# than WebSocketDisconnect. Both mean the same thing here: the peer is gone.
+DISCONNECTED = (WebSocketDisconnect, WebSocketDisconnected)
+
 log = logging.getLogger(__name__)
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
-FRAME_INTERVAL = 0.1  # ~10 fps
+#: The real Tello's camera rate. Paced to a deadline in ``_video_loop``, so the
+#: per-frame work does not come off it -- it used to be 0.1 slept *after* the
+#: work, which held the picture under 10 fps.
+FRAME_INTERVAL = 1 / 30
+#: How often the camera is still read while nothing is watching it: no page, no
+#: IDE, no program flying. Rendering the cage at full rate for nobody kept a
+#: whole core busy. Not never, because reading the Tello's camera is also how a
+#: dead or firewalled stream is noticed (see ``TelloDrone.get_frame``).
+IDLE_FRAME_INTERVAL = 0.5
 # Pose is a handful of floats, so it can run far faster than video. It has to:
 # at 10 Hz the third-person view stutters, and the race scorer's gate-crossing
 # interpolation gets noticeably coarser.
 POSE_INTERVAL = 1 / 30
+#: How often a running copy asks GitHub whether ``main`` has moved on. Once at
+#: start, then rarely: a classroom shares one address, and GitHub allows that
+#: address 60 unauthenticated requests an hour across every laptop on it.
+UPDATE_CHECK_INTERVAL = 3 * 60 * 60
 RACE_TICK_INTERVAL = 0.25  # how often the running race clock is re-broadcast
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 REMOTE_FRAME_QUALITY = 90
@@ -196,6 +219,7 @@ def create_app(
     script_delay: float = 1.5,
     tello_factory: Callable[[], DroneAdapter] = _new_tello,
     simulator_factory: Callable[[], DroneAdapter] = _new_simulator,
+    check_updates: bool = False,
 ) -> FastAPI:
 
     @asynccontextmanager
@@ -244,6 +268,14 @@ def create_app(
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
         app.state.liveness_task = asyncio.create_task(_liveness_loop(app))
+        # What the page is told about versions, by message type: a newer
+        # ``main`` ("update_available") and what the last update changed
+        # ("updated"). Sent to every page that connects this session.
+        app.state.update_notices = {}
+        app.state.changelog_recorded = False
+        app.state.update_task = (
+            asyncio.create_task(_update_loop(app)) if check_updates else None
+        )
         app.state.script_task = (
             asyncio.create_task(_script_loop(app)) if script else None
         )
@@ -261,6 +293,8 @@ def create_app(
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
         app.state.liveness_task.cancel()
+        if app.state.update_task:
+            app.state.update_task.cancel()
         if app.state.script_task:
             # cancelling the task only drops the await — tell the script itself
             if isinstance(app.state.active_run, ScriptRun):
@@ -277,45 +311,119 @@ def create_app(
     app = FastAPI(lifespan=lifespan)
 
     async def _video_loop(app: FastAPI):
+        """Camera to browser (and IDE), at the camera's own rate.
+
+        Paced to a deadline rather than by a fixed sleep after the work. A frame
+        that runs long resets the clock instead of being followed by a burst of
+        catch-up frames.
+
+        With nothing watching, the camera is read only every
+        ``IDLE_FRAME_INTERVAL``. The loop itself keeps its full-rate tick, which
+        costs nothing on its own, so a page or program that arrives gets its
+        first frame within one ``FRAME_INTERVAL``, not one idle interval.
+        """
+        loop = asyncio.get_running_loop()
+        next_at = loop.time()
+        last_read = None
         while True:
-            active_drone = app.state.drone
-            try:
-                frame = await asyncio.to_thread(active_drone.get_frame)
-            except Exception:
-                # A camera that throws must not take the video loop down with
-                # it: this task never restarts, so the picture would stay black
-                # even after the drone came back. The watchdog does the repair.
-                active_drone.link_ok = False
-                frame = None
-            if frame is not None:
-                # the raw sensor frame is what a team's own OpenCV should see;
-                # the minimap and any other overlay go on a display copy only
-                app.state.latest_frame = frame.copy()
-                small = (
-                    cv2.resize(frame, (640, 480))
-                    if frame.shape[1] != 640
-                    else frame.copy()
-                )
-                display = active_drone.annotate(small)
-                markers = app.state.overlay
-                if markers:
-                    if time.monotonic() - app.state.overlay_at <= overlay.TTL_S:
-                        display = overlay.draw(display, markers)
-                    else:
-                        app.state.overlay = ()
-                ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                if ok:
-                    await _broadcast_bytes(app, jpeg.tobytes())
-                # The IDE receives a separately encoded copy of the raw sensor
-                # frame. Display annotations never enter a team's detector.
-                remote = app.state.remote_run
-                if remote is not None:
-                    raw_ok, raw_jpeg = cv2.imencode(
-                        ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, REMOTE_FRAME_QUALITY]
-                    )
-                    if raw_ok:
-                        await _remote_send_bytes(remote, raw_jpeg.tobytes())
-            await asyncio.sleep(FRAME_INTERVAL)
+            watched = (
+                bool(app.state.clients)
+                or app.state.remote_run is not None
+                or app.state.active_run is not None
+            )
+            if (
+                watched
+                or last_read is None
+                or loop.time() - last_read >= IDLE_FRAME_INTERVAL
+            ):
+                last_read = loop.time()
+                await _video_frame(app)
+            next_at += FRAME_INTERVAL
+            now = loop.time()
+            if next_at < now:
+                next_at = now
+            await asyncio.sleep(next_at - now)
+
+    async def _video_frame(app: FastAPI) -> None:
+        """Read one camera frame and hand it to whoever is watching."""
+        active_drone = app.state.drone
+        try:
+            frame = await asyncio.to_thread(active_drone.get_frame)
+        except Exception:
+            # A camera that throws must not take the video loop down with it:
+            # this task never restarts, so the picture would stay black even
+            # after the drone came back. The watchdog does the repair.
+            active_drone.link_ok = False
+            frame = None
+        if frame is None:
+            return
+        # the raw sensor frame is what a team's own OpenCV should see; the
+        # minimap and any other overlay go on a display copy only
+        app.state.latest_frame = frame.copy()
+        if app.state.clients:
+            small = (
+                cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame.copy()
+            )
+            display = active_drone.annotate(small)
+            markers = app.state.overlay
+            if markers:
+                if time.monotonic() - app.state.overlay_at <= overlay.TTL_S:
+                    display = overlay.draw(display, markers)
+                else:
+                    app.state.overlay = ()
+            ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                await _broadcast_bytes(app, jpeg.tobytes())
+        # The IDE receives a separately encoded copy of the raw sensor frame.
+        # Display annotations never enter a team's detector.
+        remote = app.state.remote_run
+        if remote is not None:
+            raw_ok, raw_jpeg = cv2.imencode(
+                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, REMOTE_FRAME_QUALITY]
+            )
+            if raw_ok:
+                await _remote_send_bytes(remote, raw_jpeg.tobytes())
+
+    async def _update_loop(app: FastAPI):
+        """Tell the page what the last update changed, and when there is a new one.
+
+        Best effort and in the background: a slow or absent network delays
+        nothing else, and says nothing.
+        """
+        changes = await _quietly(updates.changes_since_last_run)
+        if changes is not None:
+            app.state.update_notices["updated"] = changes
+            await _broadcast_json(app, changes)
+            if app.state.clients:
+                await _changelog_shown(app)
+        while True:
+            available = await _quietly(updates.check_for_update)
+            if available is not None:
+                if available != app.state.update_notices.get("update_available"):
+                    app.state.update_notices["update_available"] = available
+                    await _broadcast_json(app, available)
+            await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+
+    async def _quietly(check):
+        """Run a version check off the event loop; any failure means "no news"."""
+        try:
+            return await asyncio.to_thread(check)
+        except Exception:
+            log.debug("version check failed", exc_info=True)
+            return None
+
+    async def _changelog_shown(app: FastAPI):
+        """A page has the changelog: the next start need not show it again.
+
+        Recorded only once a page has it, so a copy started with no browser, or
+        stopped before one connected, still shows it next time.
+        """
+        if app.state.changelog_recorded:
+            return
+        app.state.changelog_recorded = True
+        version = await asyncio.to_thread(updates.local_version)
+        if version is not None:
+            await asyncio.to_thread(updates.remember_run, version)
 
     async def _pose_loop(app: FastAPI):
         """Feed the browser's third-person view and the race scorer.
@@ -649,7 +757,13 @@ def create_app(
     async def _load_arena(app: FastAPI, msg):
         """Switch how the room looks, then put everything watching back."""
         active_drone = app.state.drone
-        if msg.get("randomize"):
+        if msg.get("flight"):
+            try:
+                await asyncio.to_thread(active_drone.load_flight, msg["flight"])
+            except ValueError as exc:
+                await _broadcast_json(app, {"type": "error", "message": str(exc)})
+                return
+        elif msg.get("randomize"):
             await asyncio.to_thread(
                 lambda: active_drone.randomize_arena(msg.get("seed"))
             )
@@ -667,6 +781,10 @@ def create_app(
             "type": "arena",
             "catalog": active_drone.arena_catalog(),
             "current": _arena_selection(active_drone),
+            "flight": {
+                "options": active_drone.flight_catalog(),
+                "current": active_drone.flight_name,
+            },
         }
 
     def _arena_selection(active_drone):
@@ -678,6 +796,7 @@ def create_app(
             "name": getattr(active_drone, "arena_name", None),
             "light_intensity": appearance.light.intensity,
             "mount": appearance.mount,
+            "parts": dict(appearance.parts),
         }
 
     async def _announce_drone(app: FastAPI, candidate: DroneAdapter):
@@ -1000,7 +1119,7 @@ def create_app(
                         await _broadcast_json(
                             app, {"type": "finished", "reason": "done", "detail": ""}
                         )
-        except WebSocketDisconnect:
+        except DISCONNECTED:
             pass
         finally:
             await _finish_remote(app, run, "disconnected", "Python client disconnected")
@@ -1061,6 +1180,10 @@ def create_app(
                 }
             )
         )
+        for notice in list(app.state.update_notices.values()):
+            await ws.send_text(json.dumps(notice))
+        if "updated" in app.state.update_notices:
+            await _changelog_shown(app)
 
         try:
             while True:
@@ -1236,7 +1359,7 @@ def create_app(
                         await _reply_error(
                             ws, f"this program does not understand '{msg['type']}'"
                         )
-                except WebSocketDisconnect:
+                except DISCONNECTED:
                     raise
                 except Exception as exc:
                     # One malformed or unlucky message must never take the socket
@@ -1245,7 +1368,7 @@ def create_app(
                     kind = msg.get("type") if isinstance(msg, dict) else "unreadable"
                     log.exception("error handling %s message", kind)
                     await _reply_error(ws, f"could not do that: {exc}")
-        except WebSocketDisconnect:
+        except DISCONNECTED:
             pass
         finally:
             app.state.clients.discard(ws)

@@ -102,6 +102,37 @@ def test_takeoff_land_altitude_and_frame_shape():
     assert d.z == 0.0 and not d.flying
 
 
+def test_the_camera_runs_on_the_clock_not_on_how_often_it_is_read(monkeypatch):
+    """The blur and colour drift a detector is tuned against must not depend on
+    the rate the server reads frames at, which depends on the laptop."""
+    clock = [100.0]
+    monkeypatch.setattr(time, "monotonic", lambda: clock[0])
+
+    def read_turning(interval):
+        """Two frames ``interval`` apart, turning at 90 deg/s in between."""
+        d = drone()
+        seen = []
+        apply = d._imaging.apply
+        d._imaging.apply = lambda img, motion_px=(0.0, 0.0): (
+            seen.append(motion_px) or apply(img, motion_px)
+        )
+        d.get_frame()
+        clock[0] += interval
+        d.heading += 90 * interval
+        d.get_frame()
+        return seen[-1][0], d._imaging._t
+
+    blur_30fps, t_30fps = read_turning(1 / 30)
+    blur_7fps, t_7fps = read_turning(1 / 7)
+    assert blur_30fps > 0
+    assert blur_7fps == pytest.approx(blur_30fps)
+    assert (t_30fps, t_7fps) == pytest.approx((1 / 30, 1 / 7))
+    # Frames closer together than the exposure smear by the slide between them,
+    # never more: the shutter cannot be open longer than that.
+    blur_fast, _ = read_turning(0.001)
+    assert blur_fast < blur_30fps
+
+
 # --- animation ------------------------------------------------------------
 
 

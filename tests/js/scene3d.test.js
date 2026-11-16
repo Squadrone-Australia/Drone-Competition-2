@@ -177,7 +177,15 @@ test("each gate is a ring of the sent diameters, painted on a canvas", () => {
   const faces = made.filter(
     (o) => o.geometry && o.geometry.kind === "Ring" && o.material && o.material.map,
   );
-  assert.strictEqual(faces.length, cagePayload.gates.length, "one face per gate");
+  // The real ring is printed on both faces and reads correctly from either:
+  // two single-sided faces turned opposite ways, never one double-sided one,
+  // whose back would show the print mirrored.
+  assert.strictEqual(faces.length, 2 * cagePayload.gates.length, "two faces per gate");
+  for (const face of faces) assert.strictEqual(face.material.side, THREE.FrontSide);
+  for (let i = 0; i < faces.length; i += 2) {
+    const turn = Math.abs(faces[i].rotation.y - faces[i + 1].rotation.y);
+    assert.ok(Math.abs(turn - Math.PI) < 1e-12, `faces turned ${turn} apart`);
+  }
   const [inner, outer] = faces[0].geometry.args;
   assert.ok(Math.abs(inner - g.opening_diameter_m / 2) < 1e-12, `inner radius ${inner}`);
   assert.ok(Math.abs(outer - g.diameter_m / 2) < 1e-12, `outer radius ${outer}`);

@@ -6,7 +6,7 @@
   <title>Squadrone Drone Racer</title>
   <meta name="color-scheme" content="dark">
   <link rel="icon" href="assets/squadrone-logo.webp">
-  <link rel="stylesheet" href="style.css?v=20261020-2">
+  <link rel="stylesheet" href="style.css?v=20261116-1">
   <script type="importmap">
     { "imports": { "three": "./vendor/three.module.min.js" } }
   </script>
@@ -39,6 +39,10 @@
 
     <button id="estop" class="estop">Emergency stop</button>
   </header>
+
+  <!-- A newer COMP2 on GitHub, and what the last update changed. Filled by
+       app.js from the server's "update_available" and "updated" messages. -->
+  <div id="update-notices" aria-live="polite"></div>
 
   <main id="cockpit">
     <div id="visual-deck">
@@ -129,10 +133,10 @@
     here is not guaranteed to fly the same way on a physical drone.
   </footer>
 
-  <script src="app.js?v=20261013-1"></script>
+  <script src="app.js?v=20261116-1"></script>
   <script src="plan.js?v=20261001-1"></script>
-  <script src="arena.js?v=20261020-1"></script>
+  <script src="arena.js?v=20261112-1"></script>
   <script src="arena_layout.js?v=20260918-2"></script>
-  <script type="module" src="view3d.js?v=20261020-1"></script>
+  <script type="module" src="view3d.js?v=20261112-1"></script>
 </body>
 </html>
