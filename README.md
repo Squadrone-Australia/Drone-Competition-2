@@ -63,6 +63,10 @@ only when something changed, and then opens the simulator. Offline, or if the
 update fails, it starts the version you already have. If the simulator is
 already running, the launcher just opens it in your browser.
 
+While it runs, the simulator page tells you when a newer version is out. Stop
+COMP2 and start it again from the launcher to get it. After an update, the
+page lists what changed. `python -m comp2 --no-update-check` turns both off.
+
 On a slow or restricted network, uv's
 own `UV_DEFAULT_INDEX` (a PyPI mirror) and `UV_PYTHON_INSTALL_MIRROR` variables
 are honoured. On Linux, OpenCV needs `libgl1` and `libglib2.0-0`; the script

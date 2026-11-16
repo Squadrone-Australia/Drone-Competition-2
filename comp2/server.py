@@ -13,7 +13,7 @@ import cv2
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.staticfiles import StaticFiles
 
-from . import overlay
+from . import overlay, updates
 from .api import Drone, EmergencyStop, ScriptRun, Session
 from .drone.base import DroneAdapter
 from .sim.race import RUNNING, RaceScorer
@@ -45,6 +45,10 @@ IDLE_FRAME_INTERVAL = 0.5
 # at 10 Hz the third-person view stutters, and the race scorer's gate-crossing
 # interpolation gets noticeably coarser.
 POSE_INTERVAL = 1 / 30
+#: How often a running copy asks GitHub whether ``main`` has moved on. Once at
+#: start, then rarely: a classroom shares one address, and GitHub allows that
+#: address 60 unauthenticated requests an hour across every laptop on it.
+UPDATE_CHECK_INTERVAL = 3 * 60 * 60
 RACE_TICK_INTERVAL = 0.25  # how often the running race clock is re-broadcast
 SCRIPT_CLIENT_WAIT = 5.0  # how long a --script run holds off for the browser
 REMOTE_FRAME_QUALITY = 90
@@ -215,6 +219,7 @@ def create_app(
     script_delay: float = 1.5,
     tello_factory: Callable[[], DroneAdapter] = _new_tello,
     simulator_factory: Callable[[], DroneAdapter] = _new_simulator,
+    check_updates: bool = False,
 ) -> FastAPI:
 
     @asynccontextmanager
@@ -263,6 +268,14 @@ def create_app(
         app.state.pose_task = asyncio.create_task(_pose_loop(app))
         app.state.link_task = asyncio.create_task(_link_loop(app))
         app.state.liveness_task = asyncio.create_task(_liveness_loop(app))
+        # What the page is told about versions, by message type: a newer
+        # ``main`` ("update_available") and what the last update changed
+        # ("updated"). Sent to every page that connects this session.
+        app.state.update_notices = {}
+        app.state.changelog_recorded = False
+        app.state.update_task = (
+            asyncio.create_task(_update_loop(app)) if check_updates else None
+        )
         app.state.script_task = (
             asyncio.create_task(_script_loop(app)) if script else None
         )
@@ -280,6 +293,8 @@ def create_app(
         app.state.pose_task.cancel()
         app.state.link_task.cancel()
         app.state.liveness_task.cancel()
+        if app.state.update_task:
+            app.state.update_task.cancel()
         if app.state.script_task:
             # cancelling the task only drops the await — tell the script itself
             if isinstance(app.state.active_run, ScriptRun):
@@ -368,6 +383,47 @@ def create_app(
             )
             if raw_ok:
                 await _remote_send_bytes(remote, raw_jpeg.tobytes())
+
+    async def _update_loop(app: FastAPI):
+        """Tell the page what the last update changed, and when there is a new one.
+
+        Best effort and in the background: a slow or absent network delays
+        nothing else, and says nothing.
+        """
+        changes = await _quietly(updates.changes_since_last_run)
+        if changes is not None:
+            app.state.update_notices["updated"] = changes
+            await _broadcast_json(app, changes)
+            if app.state.clients:
+                await _changelog_shown(app)
+        while True:
+            available = await _quietly(updates.check_for_update)
+            if available is not None:
+                if available != app.state.update_notices.get("update_available"):
+                    app.state.update_notices["update_available"] = available
+                    await _broadcast_json(app, available)
+            await asyncio.sleep(UPDATE_CHECK_INTERVAL)
+
+    async def _quietly(check):
+        """Run a version check off the event loop; any failure means "no news"."""
+        try:
+            return await asyncio.to_thread(check)
+        except Exception:
+            log.debug("version check failed", exc_info=True)
+            return None
+
+    async def _changelog_shown(app: FastAPI):
+        """A page has the changelog: the next start need not show it again.
+
+        Recorded only once a page has it, so a copy started with no browser, or
+        stopped before one connected, still shows it next time.
+        """
+        if app.state.changelog_recorded:
+            return
+        app.state.changelog_recorded = True
+        version = await asyncio.to_thread(updates.local_version)
+        if version is not None:
+            await asyncio.to_thread(updates.remember_run, version)
 
     async def _pose_loop(app: FastAPI):
         """Feed the browser's third-person view and the race scorer.
@@ -1124,6 +1180,10 @@ def create_app(
                 }
             )
         )
+        for notice in list(app.state.update_notices.values()):
+            await ws.send_text(json.dumps(notice))
+        if "updated" in app.state.update_notices:
+            await _changelog_shown(app)
 
         try:
             while True:

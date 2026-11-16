@@ -23,6 +23,12 @@ def main():
     ap.add_argument("--port", type=int, default=8765)
     ap.add_argument("--no-browser", action="store_true")
     ap.add_argument(
+        "--no-update-check",
+        action="store_true",
+        help="don't ask GitHub whether a newer COMP2 is out, and don't list "
+        "what the last update changed",
+    )
+    ap.add_argument(
         "--script",
         type=Path,
         default=None,
@@ -88,7 +94,12 @@ def main():
         launch_url = f"http://localhost:{args.port}/?launch={time.time_ns()}"
         threading.Timer(1.0, lambda: webbrowser.open(launch_url)).start()
     uvicorn.run(
-        create_app(drone, script=args.script, simulator_factory=new_simulator),
+        create_app(
+            drone,
+            script=args.script,
+            simulator_factory=new_simulator,
+            check_updates=not args.no_update_check,
+        ),
         host="127.0.0.1",
         port=args.port,
     )
