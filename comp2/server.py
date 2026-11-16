@@ -32,7 +32,15 @@ DISCONNECTED = (WebSocketDisconnect, WebSocketDisconnected)
 log = logging.getLogger(__name__)
 
 FRONTEND_DIR = Path(__file__).parent / "frontend"
-FRAME_INTERVAL = 0.1  # ~10 fps
+#: The real Tello's camera rate. Paced to a deadline in ``_video_loop``, so the
+#: per-frame work does not come off it -- it used to be 0.1 slept *after* the
+#: work, which held the picture under 10 fps.
+FRAME_INTERVAL = 1 / 30
+#: How often the camera is still read while nothing is watching it: no page, no
+#: IDE, no program flying. Rendering the cage at full rate for nobody kept a
+#: whole core busy. Not never, because reading the Tello's camera is also how a
+#: dead or firewalled stream is noticed (see ``TelloDrone.get_frame``).
+IDLE_FRAME_INTERVAL = 0.5
 # Pose is a handful of floats, so it can run far faster than video. It has to:
 # at 10 Hz the third-person view stutters, and the race scorer's gate-crossing
 # interpolation gets noticeably coarser.
@@ -288,45 +296,78 @@ def create_app(
     app = FastAPI(lifespan=lifespan)
 
     async def _video_loop(app: FastAPI):
+        """Camera to browser (and IDE), at the camera's own rate.
+
+        Paced to a deadline rather than by a fixed sleep after the work. A frame
+        that runs long resets the clock instead of being followed by a burst of
+        catch-up frames.
+
+        With nothing watching, the camera is read only every
+        ``IDLE_FRAME_INTERVAL``. The loop itself keeps its full-rate tick, which
+        costs nothing on its own, so a page or program that arrives gets its
+        first frame within one ``FRAME_INTERVAL``, not one idle interval.
+        """
+        loop = asyncio.get_running_loop()
+        next_at = loop.time()
+        last_read = None
         while True:
-            active_drone = app.state.drone
-            try:
-                frame = await asyncio.to_thread(active_drone.get_frame)
-            except Exception:
-                # A camera that throws must not take the video loop down with
-                # it: this task never restarts, so the picture would stay black
-                # even after the drone came back. The watchdog does the repair.
-                active_drone.link_ok = False
-                frame = None
-            if frame is not None:
-                # the raw sensor frame is what a team's own OpenCV should see;
-                # the minimap and any other overlay go on a display copy only
-                app.state.latest_frame = frame.copy()
-                small = (
-                    cv2.resize(frame, (640, 480))
-                    if frame.shape[1] != 640
-                    else frame.copy()
-                )
-                display = active_drone.annotate(small)
-                markers = app.state.overlay
-                if markers:
-                    if time.monotonic() - app.state.overlay_at <= overlay.TTL_S:
-                        display = overlay.draw(display, markers)
-                    else:
-                        app.state.overlay = ()
-                ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
-                if ok:
-                    await _broadcast_bytes(app, jpeg.tobytes())
-                # The IDE receives a separately encoded copy of the raw sensor
-                # frame. Display annotations never enter a team's detector.
-                remote = app.state.remote_run
-                if remote is not None:
-                    raw_ok, raw_jpeg = cv2.imencode(
-                        ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, REMOTE_FRAME_QUALITY]
-                    )
-                    if raw_ok:
-                        await _remote_send_bytes(remote, raw_jpeg.tobytes())
-            await asyncio.sleep(FRAME_INTERVAL)
+            watched = (
+                bool(app.state.clients)
+                or app.state.remote_run is not None
+                or app.state.active_run is not None
+            )
+            if (
+                watched
+                or last_read is None
+                or loop.time() - last_read >= IDLE_FRAME_INTERVAL
+            ):
+                last_read = loop.time()
+                await _video_frame(app)
+            next_at += FRAME_INTERVAL
+            now = loop.time()
+            if next_at < now:
+                next_at = now
+            await asyncio.sleep(next_at - now)
+
+    async def _video_frame(app: FastAPI) -> None:
+        """Read one camera frame and hand it to whoever is watching."""
+        active_drone = app.state.drone
+        try:
+            frame = await asyncio.to_thread(active_drone.get_frame)
+        except Exception:
+            # A camera that throws must not take the video loop down with it:
+            # this task never restarts, so the picture would stay black even
+            # after the drone came back. The watchdog does the repair.
+            active_drone.link_ok = False
+            frame = None
+        if frame is None:
+            return
+        # the raw sensor frame is what a team's own OpenCV should see; the
+        # minimap and any other overlay go on a display copy only
+        app.state.latest_frame = frame.copy()
+        if app.state.clients:
+            small = (
+                cv2.resize(frame, (640, 480)) if frame.shape[1] != 640 else frame.copy()
+            )
+            display = active_drone.annotate(small)
+            markers = app.state.overlay
+            if markers:
+                if time.monotonic() - app.state.overlay_at <= overlay.TTL_S:
+                    display = overlay.draw(display, markers)
+                else:
+                    app.state.overlay = ()
+            ok, jpeg = cv2.imencode(".jpg", display, [cv2.IMWRITE_JPEG_QUALITY, 70])
+            if ok:
+                await _broadcast_bytes(app, jpeg.tobytes())
+        # The IDE receives a separately encoded copy of the raw sensor frame.
+        # Display annotations never enter a team's detector.
+        remote = app.state.remote_run
+        if remote is not None:
+            raw_ok, raw_jpeg = cv2.imencode(
+                ".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, REMOTE_FRAME_QUALITY]
+            )
+            if raw_ok:
+                await _remote_send_bytes(remote, raw_jpeg.tobytes())
 
     async def _pose_loop(app: FastAPI):
         """Feed the browser's third-person view and the race scorer.

@@ -147,7 +147,11 @@ class FakeAvFrame:
         self.value = value
 
     def to_ndarray(self, format=None):
-        return np.full((4, 4, 3), self.value, np.uint8)
+        """A pure-red picture, laid out in whichever channel order is asked for,
+        so a test can tell RGB from BGR the way the real decoder would."""
+        image = np.zeros((4, 4, 3), np.uint8)
+        image[:, :, {"rgb24": 0, "bgr24": 2}[format]] = self.value
+        return image
 
 
 class FakeDecoder:
@@ -203,7 +207,11 @@ def test_frames_arrive_as_bgr_and_closing_releases_the_port(loopback_video):
     d = connected_tello()
     d._open_reader()
     send(200)
-    assert _wait_for_frame(d).shape == (4, 4, 3)
+    frame = _wait_for_frame(d)
+    assert frame.shape == (4, 4, 3)
+    # Red on the wire is red to OpenCV: the reader decodes straight to BGR and
+    # get_frame must not flip it a second time.
+    assert frame[0, 0].tolist() == [0, 0, 200]
     port = readers[0].port
     worker = readers[0]._worker
 

@@ -49,8 +49,11 @@ TAKEOFF_MIN_M, TAKEOFF_MAX_M = 0.70, 1.30
 # never sees finer than that however still the air is.
 HEIGHT_QUANTUM_CM = 1.0
 # Motion blur is smeared over the shutter's open time, not the whole frame
-# interval — the Tello's exposure in a lit hall is a small fraction of it.
-EXPOSURE_FRACTION = 0.12
+# interval: the Tello's exposure in a lit hall is about 4 ms, an eighth of its
+# 30 fps frame. Fixed in seconds rather than as a share of whatever interval the
+# server happens to ask for frames at, so the blur a detector is tuned against
+# does not change with the laptop's speed.
+EXPOSURE_S = 0.004
 # Translation only smears in proportion to how near the scene is. Using the
 # cage's typical working distance keeps this a plain scalar instead of needing
 # a depth buffer the renderer does not have.
@@ -120,6 +123,7 @@ class SimDrone(DroneAdapter):
         self._flight_t = 0.0
         self._takeoff_alt = TAKEOFF_ALT_M
         self._last_view = None
+        self._last_frame_at = None
         with self._rc_lock:
             self._rc_target = (0.0, 0.0, 0.0, 0.0)  # lr, fb, ud, yaw in -1..1
             self._vel = [0.0, 0.0, 0.0, 0.0]  # body-frame lr, fb, ud, yaw dps
@@ -525,15 +529,23 @@ class SimDrone(DroneAdapter):
 
     def get_frame(self):
         x, y, z = self._observed()
+        now = time.monotonic()
         frame = render(self.world, x, y, z, self.heading)
-        # How far the scene slid since the last frame, in pixels — what smears
-        # it. Measured from the view actually rendered, so a gust blurs the
-        # picture exactly as much as it moved the aircraft.
+        # The camera runs on the clock, not on how often it is asked: the
+        # exposure and white balance wander at the same real speed whether the
+        # server reads 30 frames a second or 7.
+        dt = 0.0 if self._last_frame_at is None else now - self._last_frame_at
+        self._last_frame_at = now
+        # How far the scene slides while the shutter is open, in pixels — what
+        # smears it. Measured from the view actually rendered, so a gust blurs
+        # the picture exactly as much as it moved the aircraft; scaled from the
+        # slide since the last frame down to the exposure, and never past it,
+        # since a shutter cannot stay open longer than the gap between frames.
         motion = (0.0, 0.0)
         view = (x, y, z, self.heading)
-        if self._last_view is not None:
+        if self._last_view is not None and dt > 0:
             px, py, pz, ph = self._last_view
-            focal = render_focal(frame.shape[1]) * EXPOSURE_FRACTION
+            focal = render_focal(frame.shape[1]) * min(1.0, EXPOSURE_S / dt)
             yaw = math.radians((self.heading - ph + 180) % 360 - 180)
             slide = math.hypot(x - px, y - py) / BLUR_DEPTH_M
             motion = (
@@ -541,7 +553,7 @@ class SimDrone(DroneAdapter):
                 abs(focal * (z - pz) / BLUR_DEPTH_M),
             )
         self._last_view = view
-        self._imaging.advance(1.0 / ANIM_FPS)
+        self._imaging.advance(dt)
         return self._imaging.apply(frame, motion_px=motion)
 
     def height_cm(self) -> float:

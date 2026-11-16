@@ -84,6 +84,30 @@ def test_video_frames_are_jpeg_and_raw():
         assert frame[:2] == b"\xff\xd8"  # JPEG magic
 
 
+def test_the_camera_is_read_slowly_while_nothing_watches_it():
+    """Rendering the cage at full rate for nobody kept a whole core busy; but a
+    page that connects must get the full rate again straight away."""
+    import time
+
+    reads = []
+    drone = MockDrone(
+        frame_factory=lambda: (
+            reads.append(time.monotonic()) or np.zeros((480, 640, 3), np.uint8)
+        )
+    )
+    app = create_app(drone)
+    with TestClient(app) as client:
+        time.sleep(1.0)
+        idle = len(reads)
+        with client.websocket_connect("/ws") as ws:
+            collect_until(ws, "frame")
+            start = len(reads)
+            time.sleep(1.0)
+            watched = len(reads) - start
+    assert idle <= 4  # every IDLE_FRAME_INTERVAL, give or take the first read
+    assert watched >= 10
+
+
 def test_scene_is_sent_once_on_connect():
     """The 3D view is built from this one message; if it never arrives the stage
     stays empty for the whole session, with no retry."""
