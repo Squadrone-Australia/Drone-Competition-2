@@ -18,9 +18,10 @@ stick percentages as described below.
 
 The simulator flies like a real Tello by default: takeoff height varies, the
 aircraft drifts while hovering, and every move ends slightly off target, by
-more over longer distances. Use **Flight accuracy** in the cockpit's Arena panel
-to change the conditions (`good`, `poor`, or `ideal` to fly exactly as
-commanded), or start with `python -m comp2 --flight poor`. The error sizes are
+more over longer distances. That default is the `typical` profile, a real Tello
+indoors. Use **Flight accuracy** in the cockpit's Arena panel to change the
+conditions (`good`, `poor`, or `ideal` to fly exactly as commanded), or start
+with, for example, `python -m comp2 --flight ideal`. The error sizes are
 estimates, so do not tune a program to their exact values.
 
 ## Constructing a `Drone`
@@ -94,9 +95,9 @@ drone.takeoff()
 
 ### `land()`
 
-Centres the RC sticks, descends, and stops the motors. In a scored run, landing
-finishes the race only after all gates have been passed and the drone is over
-the finish pad; otherwise the run is a DNF.
+Centres the RC sticks, descends, and stops the motors. On the simulator's
+practice score card, landing finishes the race only after all gates have been
+passed and the drone is over the finish pad; otherwise the run is a DNF.
 
 ```python
 drone.land()
@@ -264,7 +265,9 @@ remote call, so the chosen duration should be shorter than the client's command
 ### `frame(timeout=None, *, fresh=False)`
 
 Returns the latest raw forward-camera image as a NumPy array in **BGR** channel
-order, ready for OpenCV, or `None` if no frame is available.
+order, ready for OpenCV, or `None` if no frame is available. The shape is
+`(480, 640, 3)` from the simulator and `(720, 960, 3)` from the real Tello, so
+read it from `frame.shape` instead of assuming one.
 
 ```python
 import cv2

@@ -110,11 +110,17 @@ python -m comp2 --drone tello                     # start against real hardware
 
 (Prefix with `venv\Scripts\` or `venv/bin/`, or activate the virtualenv first.)
 
-Install the lightweight client into the interpreter selected in your IDE:
+Install the lightweight client into the interpreter selected in your IDE. The
+app needs Python 3.13+, but the client works on Python 3.11+, so your IDE's
+interpreter can be older than the app's:
 
 ```powershell
 python -m pip install .\client
 ```
+
+The client does not include OpenCV; add it with
+`python -m pip install opencv-python` if your code (or `examples/03_pilot.py`)
+uses `cv2`. The app's own `venv` already has it.
 
 Competition distributions include this `client` directory. Organisers can
 also build a wheel for teams to install before the event:
@@ -149,14 +155,21 @@ browser header; the script does not change.
 
 ## Updates and feedback
 
-This app may be updated in the future (fixes, new tracks, new client features),
-so remember to pull the latest code from time to time:
+This app may be updated in the future (fixes, new tracks, new client features).
+How you get an update depends on how you installed it:
 
-```powershell
-git pull
-python -m pip install -e .           # in the app's venv, picks up new dependencies
-python -m pip install .\client       # in your IDE's interpreter, updates the client
-```
+- **One-step setup:** start COMP2 from its launcher. Every start updates the
+  app and the client in `Drone-Competition-2/venv` (see
+  [One-step setup](#one-step-setup)). If your IDE runs your code with **another
+  interpreter**, also reinstall the client there:
+  `python -m pip install .\client` from the `Drone-Competition-2` folder.
+- **Manual setup:** pull the code and reinstall both yourself:
+
+  ```powershell
+  git pull
+  python -m pip install -e .           # in the app's venv, picks up new dependencies
+  python -m pip install .\client       # in your IDE's interpreter, updates the client
+  ```
 
 If you run into any issues, you are welcome to
 [submit an issue on GitHub](https://github.com/Squadrone-Australia/Drone-Competition-2/issues).
@@ -176,8 +189,9 @@ error text from the browser's System log or your IDE terminal.
 - **Track panel**: the published circuit from above. Tracks are JSON files in
   `comp2/tracks/`; the picker switches between them.
 - **Race panel**: one ring per gate. A ring fills orange once flown and prints
-  how many centimetres off the gate's centre you crossed — the accuracy metric
-  itself. The next gate is green. The score card appears when the lap ends.
+  how many centimetres off the gate's centre you crossed. The next gate is
+  green. A practice score card appears when the lap ends (see
+  [Scoring](#scoring): it is not the competition score).
 - **System log** shows connection, race and safety messages.
 
 There is no browser coding tab or browser Run button. Students edit, run and
@@ -186,9 +200,27 @@ and competition display.
 
 ## Scoring
 
-The simulator scores exactly what the competition brief scores:
+**The simulator's score card is not the competition score.** At the event,
+the judges score each flight in their own spreadsheet, against the criteria in
+the competition brief. The simulator measures the same three things
+(smoothness, accuracy, time) so you can tell whether a change to your code made
+a lap better or worse, but its formula and numbers are its own. Use it to
+compare your runs with each other, and do not tune your program to its exact
+values.
 
-| Metric     | How it is measured                                                                                                   |
+### The +10 bonus for a round flight
+
+The brief also awards a **+10 bonus** to a continuous, curved flight that
+reasonably follows the published track geometry. Whether a flight earns it is
+the judges' call, made by watching it; there is no written threshold, and the
+simulator does not award it. As a guide to the two ends of the range,
+`examples/02_smooth_lap.py` flies the kind of lap the bonus is for, and
+`examples/01_first_lap.py`, built from straight segments and turns on the spot,
+the kind it is not.
+
+### How the simulator scores a practice lap
+
+| Metric     | How the simulator measures it                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------------------------------- |
 | Smoothness | RMS jerk over the whole flown path (sampled at 30 Hz)                                                                |
 | Accuracy   | offset from each gate's centre at the moment of crossing: 1 dead centre, 0 at the rim of the 0.50 m circular opening |
@@ -205,12 +237,12 @@ landing anywhere but the finish pad (or before the last gate) is a DNF.
 ```python
 from squadrone import Drone
 
-drone = Drone()  # connects to the running Squadrone application
-drone.takeoff()
-drone.fly(fb=70, seconds=3.0)  # stick input: forward at 70% for 3 s
-drone.go(100, 0, 50, speed=60)  # glide 1 m forward and 0.5 m up
-frame = drone.frame()  # BGR image for your gate detector
-drone.land()
+with Drone() as drone:  # connects to the running Squadrone application
+    drone.takeoff()
+    drone.fly(fb=70, seconds=3.0)  # stick input: forward at 70% for 3 s
+    drone.go(100, 0, 50, speed=60)  # glide 1 m forward and 0.5 m up
+    frame = drone.frame()  # BGR image for your gate detector
+    drone.land()
 ```
 
 Run this file normally from the IDE. Squadrone keeps the video, scoring and
@@ -283,16 +315,17 @@ JSON file in `comp2/tracks/` and restart:
 {
 	"name": "My track",
 	"difficulty": 1.2,
-	"arena": { "width_m": 4.0, "depth_m": 6.0, "height_m": 3.0 },
-	"takeoff": [2.0, 0.6],
-	"landing": [2.0, 5.5],
+	"arena": { "width_m": 6.0, "depth_m": 4.0, "height_m": 3.0 },
+	"takeoff": [1.0, 2.0],
+	"takeoff_heading_deg": 90,
+	"landing": [5.0, 2.0],
 	"t_ref_s": 30.0,
 	"gates": [
 		{
-			"x": 2.0,
+			"x": 3.0,
 			"y": 2.0,
 			"z": 1.5,
-			"yaw_deg": 0,
+			"yaw_deg": 90,
 			"diameter_m": 0.7,
 			"opening_diameter_m": 0.5
 		}
@@ -300,9 +333,21 @@ JSON file in `comp2/tracks/` and restart:
 }
 ```
 
-`yaw_deg` is the direction you must fly through the gate (0 = north / +y).
+This one takes off at the west end facing east, flies through a single gate in
+the middle of the cage and lands at the east end. The coordinates are the same
+as the official tracks':
+
+- **x** runs along the cage's 6 m length (`width_m`), from west (0) to east;
+  **y** across its 4 m (`depth_m`), from south (0) to north; **z** is height
+  above the floor. All in metres.
+- **Headings** are compass degrees, clockwise seen from above: 0 = north (+y),
+  90 = east (+x), 180 = south, 270 = west (−x). `takeoff_heading_deg` is the
+  way the drone faces on the pad (default 0), and a gate's `yaw_deg` is the
+  direction you must fly through it.
+
 `diameter_m` is the ring's outer size and `opening_diameter_m` its clear
-opening (defaults 0.70 and 0.50); only the opening is scored.
+opening (defaults 0.70 and 0.50); only the opening is scored. A `weights`
+object (`smoothness`, `accuracy`, `time`) overrides the default 0.4/0.3/0.3.
 
 ## Flying the real Tello
 
