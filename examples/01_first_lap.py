@@ -16,10 +16,9 @@ A gate only counts when you cross it along its normal, so the lap is a lap of
 the cage: west along y = 3.0 through Gate 1, down the west end, east along
 y = 1.0 through Gate 2, up the east end, then west along y = 3.0 again through
 Gate 3 and straight onto the pad. Each command stops the drone before the next
-one starts, which makes that easy to reason about — and costs smoothness
-points. The +10 bonus the judges award for a round flight is not for flying
-like this; compare your practice score with 02_smooth_lap.py, which flies the
-same circuit on velocity control.
+one starts, which makes that easy to reason about — and costs time, and
+makes the lap a string of straight segments rather than a round flight;
+compare 02_smooth_lap.py, which flies the same circuit on velocity control.
 """
 
 from squadrone import Drone

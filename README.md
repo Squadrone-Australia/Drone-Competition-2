@@ -7,14 +7,12 @@ racing competition: a Ryze Tello must fly itself through a series of
 ring gates — Squadrone fabric rings, 0.70 m across the outside around a 0.50 m
 opening, orange top and bottom and black-and-white checkered left and right,
 each standing on the floor on a PVC stand of its own — in a
-6 m × 4 m × 3 m cage, scored on
-**trajectory smoothness**, **gate pass-through accuracy** and **completion
-time**, weighted by track difficulty.
+6 m × 4 m × 3 m cage.
 
 This app gives every team the same flight environment:
 
 - a **simulator** — the published tracks in 3D, a camera feed rendered through
-  the real Tello's camera model, and live race scoring;
+  the real Tello's calibrated camera, and live practice scoring;
 - an **external Python API** for code run directly from each team's IDE,
   selected interpreter, virtual environment and project directory;
 - a fixed browser cockpit that keeps the camera, arena, track, scoring and
@@ -191,34 +189,24 @@ error text from the browser's System log or your IDE terminal.
 - **Race panel**: one ring per gate. A ring fills orange once flown and prints
   how many centimetres off the gate's centre you crossed. The next gate is
   green. A practice score card appears when the lap ends (see
-  [Scoring](#scoring): it is not the competition score).
+  [Practice scoring](#practice-scoring-in-the-simulator): it is not the competition score).
 - **System log** shows connection, race and safety messages.
 
 There is no browser coding tab or browser Run button. Students edit, run and
 debug their Python in their own IDE while this page remains the live simulator
 and competition display.
 
-## Scoring
+## Practice scoring in the simulator
 
-**The simulator's score card is not the competition score.** At the event,
-the judges score each flight in their own spreadsheet, against the criteria in
-the competition brief. The simulator measures the same three things
-(smoothness, accuracy, time) so you can tell whether a change to your code made
-a lap better or worse, but its formula and numbers are its own. Use it to
-compare your runs with each other, and do not tune your program to its exact
-values.
+**The simulator's score card is not the competition score.** It measures time
+and gates passed, and adds two practice measures:
 
-### The +10 bonus for a round flight
+- **Smoothness.** A rough guide to how round your flight is.
+- **Centring.** How close to the middle of each gate you crossed. The closer to
+  the middle, the further you were from clipping the ring and crashing.
 
-The brief also awards a **+10 bonus** to a continuous, curved flight that
-reasonably follows the published track geometry. Whether a flight earns it is
-the judges' call, made by watching it; there is no written threshold, and the
-simulator does not award it. As a guide to the two ends of the range,
-`examples/02_smooth_lap.py` flies the kind of lap the bonus is for, and
-`examples/01_first_lap.py`, built from straight segments and turns on the spot,
-the kind it is not.
-
-### How the simulator scores a practice lap
+Use the card to tell whether a change to your code made a lap better or worse.
+Do not tune your program to its exact numbers.
 
 | Metric     | How the simulator measures it                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------------------------------- |
@@ -294,7 +282,8 @@ The release page describes the layout and the label format in full.
   Keypoints formats. Fit the keypoints to `gate_spec.json` (the gate's 3D
   points) with PnP to get range, sideways offset and yaw.
 - `camera/tello_camera.json` is the Tello's measured camera calibration. Use it
-  for range: the nominal field of view gives ranges about 30% short.
+  for range: the nominal field of view gives ranges about 30% short. See
+  [Camera calibration](#camera-calibration) for the values.
 - Left and right are as the camera sees the ring. If you flip images to
   augment, reorder the keypoints with the `flip_idx` in `data.yaml`, or every
   label is silently wrong.
@@ -303,6 +292,31 @@ The release page describes the layout and the label format in full.
 
 To collect pictures of your own, `examples/03_pilot.py` records the raw camera
 while you fly.
+
+### Camera calibration
+
+The Tello's camera was calibrated with a ChArUco board at 960×720: 48 views,
+0.28 px RMS reprojection error. The result ships with this app as
+[`comp2/vision/tello_camera.json`](comp2/vision/tello_camera.json), with the
+full report beside it. The simulator renders through the same focal length and
+principal point, so geometry worked out in the simulator carries over to the
+real camera.
+
+| Value           | In the file                  | At 960×720                   |
+| --------------- | ---------------------------- | ---------------------------- |
+| Focal length    | `focal_per_width` 0.9795     | fx ≈ fy ≈ 940.4 px           |
+| Principal point | `cx_fraction`, `cy_fraction` | (457.6, 331.1) px            |
+| Field of view   |                              | 54.1° × 41.9°                |
+| Distortion      | `distortion`                 | k1 k2 p1 p2 k3, OpenCV order |
+
+All values are fractions of the frame width (cx, focal) or height (cy), so they
+hold for the simulator's 640×480 frames too. Multiply by your frame's size to
+get an OpenCV camera matrix. The distortion is small, at most about 12 px in
+the corners of a 960×720 frame. The simulator leaves it out, so if you undistort
+real frames, do not undistort the simulator's.
+
+DJI's published "82.6°" field of view is the diagonal, and it is far wider than
+the real camera's 65°. Code that assumes it underestimates ranges by about 30%.
 
 ## Tracks
 
@@ -346,7 +360,7 @@ as the official tracks':
   direction you must fly through it.
 
 `diameter_m` is the ring's outer size and `opening_diameter_m` its clear
-opening (defaults 0.70 and 0.50); only the opening is scored. A `weights`
+opening (defaults 0.70 and 0.50); a pass is measured against the opening. A `weights`
 object (`smoothness`, `accuracy`, `time`) overrides the default 0.4/0.3/0.3.
 
 ## Flying the real Tello
@@ -358,6 +372,12 @@ object (`smoothness`, `accuracy`, `time`) overrides the default 0.4/0.3/0.3.
 Note the real drone has no arena-absolute position, so the 3D view, plan and
 scoring panels are simulator-only; on hardware you fly by camera and by the
 published track measurements.
+
+While your computer is joined to the Tello's Wi-Fi, that is usually its only
+network, and the Tello gives no internet access. If your program calls an
+online service, such as a hosted LLM, give the computer a second connection
+(Ethernet, a USB Wi-Fi adapter or USB tethering to a phone) and test it before
+the event.
 
 ## Development
 

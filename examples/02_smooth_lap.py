@@ -7,11 +7,9 @@ this file the way you run any Python program — from your IDE, or:
 
 `drone.fly()` is stick input: it holds a velocity for `seconds`, and the next
 call follows straight on, so the drone carries speed through the whole lap
-instead of stopping between commands. That matters twice over — trajectory
-smoothness is a scored metric, and the judges award the brief's +10 bonus (see
-the README's Scoring section) by eye, to a continuous curved flight that
-reasonably follows the published oval geometry. A lap built from straight
-segments and abrupt heading changes, like 01_first_lap.py, does not qualify.
+instead of stopping between commands. The lap is faster, and it is one
+continuous curve that follows the published oval geometry, unlike the
+straight segments and abrupt heading changes of 01_first_lap.py.
 
 The trick is to fly the oval the way a car takes a bend: hold a forward speed
 and yaw at the same time, so the nose stays on the tangent. A gate's normal

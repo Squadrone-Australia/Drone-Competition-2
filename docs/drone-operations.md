@@ -360,6 +360,10 @@ the simulator contestant API either.
 
 ### Mission pads (optional)
 
+**There are no mission pads in the competition cage**, so a program that
+needs them will not work there. These methods are for practice setups of your
+own.
+
 Mission pads provide measurements relative to a visible physical landmark.
 They do not expose arena-absolute pose or detect racing gates. Update both
 the server and IDE client before using these methods.

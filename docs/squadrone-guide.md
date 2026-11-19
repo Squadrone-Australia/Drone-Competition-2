@@ -232,17 +232,15 @@ pause safe.
 
 | Style | Calls | Best for | Trade-off |
 | --- | --- | --- | --- |
-| Discrete | `forward`, `left`, `up`, `turn_right`, … | First laps, learning the geometry | Stops between commands, so a poor smoothness score |
+| Discrete | `forward`, `left`, `up`, `turn_right`, … | First laps, learning the geometry | Stops between commands: slower, and never a round flight |
 | Point-to-point | `go`, `curve` | Clean diagonals and arcs through a known gate | Open loop; the drone cannot react while it moves |
 | Velocity | `fly(lr, fb, ud, yaw, seconds=…)` | Racing lines and any closed-loop control | You must keep re-issuing it; needs tuning |
 
-Smoothness counts in the competition score, and the judges award a +10 bonus to
-a continuous, round flight (see the README's
-[Scoring](../README.md#scoring) section). The simulator's practice score card
-measures smoothness as the jerk of your whole flown path, so continuous control
-scores better there than stop-and-go moves too. A good progression is to get a
-lap working with discrete commands, then replace stretches of it with `go`,
-`curve` and finally `fly`.
+Stopping between moves costs time and breaks up the flight, so continuous
+control gives a faster, rounder lap. The simulator's practice score card shows
+a smoothness figure, the jerk of your whole flown path, as a rough guide to how
+round a flight is. A good progression is to get a lap working with discrete
+commands, then replace stretches of it with `go`, `curve` and finally `fly`.
 
 ### `fly()` always needs `seconds`
 
@@ -302,8 +300,13 @@ length) so a detector tuned in the simulator keeps working on hardware.
 The image is the raw sensor view. Anything Squadrone draws on its own display,
 including the cockpit's minimap and your `show_detections()` outlines, is never
 present in the frames you receive. In the simulator, frames come through the
-real Tello's camera model, so a detector tuned there is a fair starting point
-for the cage, although real lighting and netting will still need re-tuning.
+real Tello's calibrated camera: the same focal length and principal point,
+from [`comp2/vision/tello_camera.json`](../comp2/vision/tello_camera.json)
+(see the README's [Camera calibration](../README.md#camera-calibration)). Range
+and bearing worked out on simulator frames therefore carry over, and a
+detector tuned there is a fair starting point for the cage. Real lighting and
+netting will still need re-tuning, and the venue's lighting is not guaranteed,
+so test on dim frames too.
 
 `examples/03_pilot.py` reads frames in a thread of its own while you fly the drone
 by keyboard, and records them to MP4 and PNG. It is a quick way to collect
@@ -448,7 +451,7 @@ The program is identical. The differences are in what the world gives back:
 | Selected by | operator, in the browser header | operator, after joining the `TELLO-…` Wi-Fi |
 | Arena, trail, race panel, score | shown | not available (no absolute position) |
 | `height` | modelled height above the floor | the SDK's reported height; stale or missing telemetry raises an error instead of returning 0 |
-| Mission pads | pad 1 at the takeoff spot, limited visibility | supported hardware only; otherwise raises `DroneError` |
+| Mission pads | pad 1 at the takeoff spot, limited visibility | supported hardware only; otherwise raises `DroneError`. **The competition cage has none.** |
 | `flip()` | visual only | refused when the battery is low (around 50%) or there is no clearance |
 | Camera `frame()` | `(480, 640, 3)` | `(720, 960, 3)` |
 | Repeatability | drifts like a real Tello by default (`typical`); `ideal` flies exactly as commanded | varies with battery, air and floor |
