@@ -183,8 +183,8 @@ def test_a_ring_straddling_the_camera_is_drawn_with_polygons():
     """Part of the ring behind the camera has no homography; the polygon
     fallback clips it at the near plane instead of dropping the gate."""
     world = world_with_gate(y=3.0)
-    img = render(world, 1.35, 2.9, 1.5, 45.0)
-    cam = Camera.at(INTRINSICS, 1.35, 2.9, 1.5, 45.0, 640, 480)
+    img = render(world, 1.35, 2.9, 1.5, 55.0)
+    cam = Camera.at(INTRINSICS, 1.35, 2.9, 1.5, 55.0, 640, 480)
     gate = world.gates[0]
     corners = cam.to_camera(
         [(gate.x + u, gate.y, gate.z + v) for u, v in ((-0.35, 0.35), (0.35, 0.35))]

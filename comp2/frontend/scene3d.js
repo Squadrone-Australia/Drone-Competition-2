@@ -54,7 +54,8 @@ function chaseAngle(from, to, k) {
   return (from + delta * k + 360) % 360;
 }
 
-export function createStage(container, { hfovDeg = 70, aspect = 4 / 3 } = {}) {
+// The drone's view cone: the calibrated Tello camera (comp2/vision/tello_camera.json).
+export function createStage(container, { hfovDeg = 54, aspect = 4 / 3 } = {}) {
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(COL.bg);
   scene.fog = new THREE.Fog(COL.bg, 10, 34);
