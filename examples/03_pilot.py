@@ -38,9 +38,10 @@ folder). `flight_<time>.mp4` holds exactly the pixels `drone.frame()` returned,
 without the text drawn over the picture here, and plays back in real time.
 `snapshot_<time>.png` is a single raw frame.
 
-Needs OpenCV, which comes with Squadrone, and tkinter, which comes with the
-python.org and uv builds of Python (on Debian or Ubuntu: apt install
-python3-tk).
+Needs OpenCV and tkinter. The one-step setup's `venv` already has OpenCV; in
+an interpreter of your own, `python -m pip install opencv-python`. tkinter
+comes with the python.org and uv builds of Python (on Debian or Ubuntu:
+apt install python3-tk).
 """
 
 from __future__ import annotations

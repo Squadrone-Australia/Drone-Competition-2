@@ -1,6 +1,17 @@
+import json
+
 import pytest
 
-from comp2.vision.camera import TELLO_INTRINSICS, CameraIntrinsics
+from comp2.vision.camera import (
+    CALIBRATION_FILE,
+    SIM_INTRINSICS,
+    TELLO_INTRINSICS,
+    CameraIntrinsics,
+)
+
+REPORT = json.loads(
+    CALIBRATION_FILE.with_name("tello_camera.report.json").read_text(encoding="utf-8")
+)
 
 
 def test_hfov_round_trips():
@@ -16,22 +27,34 @@ def test_diagonal_fov_is_not_the_horizontal_fov():
     assert cam.vfov_deg(0.75) == pytest.approx(55.5, abs=0.5)
 
 
-def test_focal_px_matches_the_tello_stream():
-    assert TELLO_INTRINSICS.focal_px(960) == pytest.approx(684, abs=2)
-
-
-def test_bearing_is_zero_at_centre_and_half_the_fov_at_the_edge():
+def test_the_tello_camera_is_the_calibrated_one():
     cam = TELLO_INTRINSICS
-    assert cam.bearing_deg(0.5) == pytest.approx(0.0)
-    assert cam.bearing_deg(1.0) == pytest.approx(cam.hfov_deg / 2)
-    assert cam.bearing_deg(0.0) == pytest.approx(-cam.hfov_deg / 2)
+    assert cam.focal_px(960) == pytest.approx(REPORT["fx_px"])
+    assert cam.cx_frac * 960 == pytest.approx(REPORT["cx_px"])
+    assert cam.cy_frac * 720 == pytest.approx(REPORT["cy_px"])
+    assert cam.hfov_deg == pytest.approx(REPORT["hfov_deg"], abs=0.1)
+    assert cam.vfov_deg(0.75) == pytest.approx(REPORT["vfov_deg"], abs=0.1)
+    # far narrower than DJI's nominal figure, which is what made ranges short
+    assert cam.hfov_deg < CameraIntrinsics.from_dfov(82.6).hfov_deg - 10
 
 
-def test_elevation_is_positive_above_centre():
+def test_the_simulator_sees_through_the_same_camera():
+    assert SIM_INTRINSICS == TELLO_INTRINSICS
+
+
+def test_bearing_is_zero_at_the_principal_point_and_spans_the_fov():
+    cam = TELLO_INTRINSICS
+    assert cam.bearing_deg(cam.cx_frac) == pytest.approx(0.0)
+    assert cam.bearing_deg(1.0) - cam.bearing_deg(0.0) == pytest.approx(cam.hfov_deg)
+    # the lens sits left of centre, so the right edge is further off axis
+    assert cam.bearing_deg(1.0) > -cam.bearing_deg(0.0)
+
+
+def test_elevation_is_positive_above_the_principal_point():
     cam = TELLO_INTRINSICS
     assert cam.elevation_deg(0.2) > 0  # upper part of the image
     assert cam.elevation_deg(0.8) < 0
-    assert cam.elevation_deg(0.5) == pytest.approx(0.0)
+    assert cam.elevation_deg(cam.cy_frac) == pytest.approx(0.0)
 
 
 @pytest.mark.parametrize("d", [0.5, 1.0, 2.0, 3.5, 6.0])

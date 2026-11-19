@@ -24,10 +24,19 @@ def blank(w=640, h=480):
     return np.zeros((h, w, 3), np.uint8)
 
 
-def test_point_straight_ahead_projects_to_frame_centre():
+def test_point_straight_ahead_projects_to_the_principal_point():
     c = cam()
     px = c.project(c.to_camera([(2.0, 5.0, 1.0)]))[0]
-    assert px == pytest.approx([320, 240], abs=0.5)
+    assert px == pytest.approx([c.cx, c.cy], abs=0.5)
+
+
+def test_the_principal_point_is_the_calibrated_one_not_the_frame_centre():
+    # The real Tello's lens sits up and to the left of centre; a simulator
+    # that put it dead centre would bias every bearing a detector measures.
+    c = cam()
+    assert c.cx == pytest.approx(SIM_INTRINSICS.cx_frac * 640)
+    assert c.cy == pytest.approx(SIM_INTRINSICS.cy_frac * 480)
+    assert c.cx < 320 and c.cy < 240
 
 
 def test_projection_agrees_with_the_detectors_camera_model():
@@ -46,15 +55,15 @@ def test_projection_agrees_with_the_detectors_camera_model():
 def test_heading_puts_the_target_on_the_expected_side():
     ahead = cam(heading=0.0)
     px = ahead.project(ahead.to_camera([(3.0, 4.0, 1.0)]))[0]
-    assert px[0] > ahead.w / 2  # target to the right of the nose
+    assert px[0] > ahead.cx  # target to the right of the nose
     turned = cam(heading=45.0)  # now looking straight at it
     px = turned.project(turned.to_camera([(3.0, 3.0, 1.0)]))[0]
-    assert px[0] == pytest.approx(turned.w / 2, abs=1.0)
+    assert px[0] == pytest.approx(turned.cx, abs=1.0)
 
 
 def test_points_above_the_camera_project_above_the_centre_row():
     c = cam(z=1.0)
-    assert c.project(c.to_camera([(2.0, 4.0, 2.0)]))[0][1] < c.h / 2
+    assert c.project(c.to_camera([(2.0, 4.0, 2.0)]))[0][1] < c.cy
 
 
 def test_depth_of_is_along_the_optical_axis_not_euclidean():
@@ -106,13 +115,13 @@ def test_segment_clip_keeps_the_visible_part():
     )
 
 
-def test_horizon_sits_at_the_centre_row_for_a_level_camera():
+def test_horizon_sits_at_the_principal_point_row_for_a_level_camera():
     """A level pinhole puts anything at infinity on the optical axis, so the
-    floor/ceiling seam is the frame's mid-row. Off-by-one here shows up as a
-    systematic elevation bias in every marker."""
+    floor/ceiling seam is the principal point's row. Off-by-one here shows up
+    as a systematic elevation bias in every marker."""
     c = cam(z=1.2)
     far = c.project(c.to_camera([(2.0, 10_000.0, 1.2)]))[0]
-    assert far[1] == pytest.approx(c.h / 2, abs=0.01)
+    assert far[1] == pytest.approx(c.cy, abs=0.01)
 
 
 def test_focal_length_tracks_frame_width():

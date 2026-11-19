@@ -35,10 +35,22 @@ class Camera:
     w: int
     h: int
     focal: float
+    cx: float  # principal point, in pixels
+    cy: float
 
     @classmethod
     def at(cls, intrinsics, x, y, z, heading, w, h) -> "Camera":
-        return cls(x, y, z, heading, w, h, intrinsics.focal_px(w))
+        return cls(
+            x,
+            y,
+            z,
+            heading,
+            w,
+            h,
+            intrinsics.focal_px(w),
+            intrinsics.cx_frac * w,
+            intrinsics.cy_frac * h,
+        )
 
     @property
     def eye(self) -> np.ndarray:
@@ -66,8 +78,8 @@ class Camera:
         """
         cam = np.asarray(cam_pts, float).reshape(-1, 3)
         depth = cam[:, 2]
-        sx = self.w / 2 + self.focal * cam[:, 0] / depth
-        sy = self.h / 2 - self.focal * cam[:, 1] / depth
+        sx = self.cx + self.focal * cam[:, 0] / depth
+        sy = self.cy - self.focal * cam[:, 1] / depth
         return np.stack([sx, sy], axis=1)
 
     def depth_of(self, point) -> float:

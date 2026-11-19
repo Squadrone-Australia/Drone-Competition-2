@@ -7,14 +7,12 @@ racing competition: a Ryze Tello must fly itself through a series of
 ring gates — Squadrone fabric rings, 0.70 m across the outside around a 0.50 m
 opening, orange top and bottom and black-and-white checkered left and right,
 each standing on the floor on a PVC stand of its own — in a
-6 m × 4 m × 3 m cage, scored on
-**trajectory smoothness**, **gate pass-through accuracy** and **completion
-time**, weighted by track difficulty.
+6 m × 4 m × 3 m cage.
 
 This app gives every team the same flight environment:
 
 - a **simulator** — the published tracks in 3D, a camera feed rendered through
-  the real Tello's camera model, and live race scoring;
+  the real Tello's calibrated camera, and live practice scoring;
 - an **external Python API** for code run directly from each team's IDE,
   selected interpreter, virtual environment and project directory;
 - a fixed browser cockpit that keeps the camera, arena, track, scoring and
@@ -110,11 +108,17 @@ python -m comp2 --drone tello                     # start against real hardware
 
 (Prefix with `venv\Scripts\` or `venv/bin/`, or activate the virtualenv first.)
 
-Install the lightweight client into the interpreter selected in your IDE:
+Install the lightweight client into the interpreter selected in your IDE. The
+app needs Python 3.13+, but the client works on Python 3.11+, so your IDE's
+interpreter can be older than the app's:
 
 ```powershell
 python -m pip install .\client
 ```
+
+The client does not include OpenCV; add it with
+`python -m pip install opencv-python` if your code (or `examples/03_pilot.py`)
+uses `cv2`. The app's own `venv` already has it.
 
 Competition distributions include this `client` directory. Organisers can
 also build a wheel for teams to install before the event:
@@ -149,14 +153,21 @@ browser header; the script does not change.
 
 ## Updates and feedback
 
-This app may be updated in the future (fixes, new tracks, new client features),
-so remember to pull the latest code from time to time:
+This app may be updated in the future (fixes, new tracks, new client features).
+How you get an update depends on how you installed it:
 
-```powershell
-git pull
-python -m pip install -e .           # in the app's venv, picks up new dependencies
-python -m pip install .\client       # in your IDE's interpreter, updates the client
-```
+- **One-step setup:** start COMP2 from its launcher. Every start updates the
+  app and the client in `Drone-Competition-2/venv` (see
+  [One-step setup](#one-step-setup)). If your IDE runs your code with **another
+  interpreter**, also reinstall the client there:
+  `python -m pip install .\client` from the `Drone-Competition-2` folder.
+- **Manual setup:** pull the code and reinstall both yourself:
+
+  ```powershell
+  git pull
+  python -m pip install -e .           # in the app's venv, picks up new dependencies
+  python -m pip install .\client       # in your IDE's interpreter, updates the client
+  ```
 
 If you run into any issues, you are welcome to
 [submit an issue on GitHub](https://github.com/Squadrone-Australia/Drone-Competition-2/issues).
@@ -176,19 +187,28 @@ error text from the browser's System log or your IDE terminal.
 - **Track panel**: the published circuit from above. Tracks are JSON files in
   `comp2/tracks/`; the picker switches between them.
 - **Race panel**: one ring per gate. A ring fills orange once flown and prints
-  how many centimetres off the gate's centre you crossed — the accuracy metric
-  itself. The next gate is green. The score card appears when the lap ends.
+  how many centimetres off the gate's centre you crossed. The next gate is
+  green. A practice score card appears when the lap ends (see
+  [Practice scoring](#practice-scoring-in-the-simulator): it is not the competition score).
 - **System log** shows connection, race and safety messages.
 
 There is no browser coding tab or browser Run button. Students edit, run and
 debug their Python in their own IDE while this page remains the live simulator
 and competition display.
 
-## Scoring
+## Practice scoring in the simulator
 
-The simulator scores exactly what the competition brief scores:
+**The simulator's score card is not the competition score.** It measures time
+and gates passed, and adds two practice measures:
 
-| Metric     | How it is measured                                                                                                   |
+- **Smoothness.** A rough guide to how round your flight is.
+- **Centring.** How close to the middle of each gate you crossed. The closer to
+  the middle, the further you were from clipping the ring and crashing.
+
+Use the card to tell whether a change to your code made a lap better or worse.
+Do not tune your program to its exact numbers.
+
+| Metric     | How the simulator measures it                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------------------------------- |
 | Smoothness | RMS jerk over the whole flown path (sampled at 30 Hz)                                                                |
 | Accuracy   | offset from each gate's centre at the moment of crossing: 1 dead centre, 0 at the rim of the 0.50 m circular opening |
@@ -205,12 +225,12 @@ landing anywhere but the finish pad (or before the last gate) is a DNF.
 ```python
 from squadrone import Drone
 
-drone = Drone()  # connects to the running Squadrone application
-drone.takeoff()
-drone.fly(fb=70, seconds=3.0)  # stick input: forward at 70% for 3 s
-drone.go(100, 0, 50, speed=60)  # glide 1 m forward and 0.5 m up
-frame = drone.frame()  # BGR image for your gate detector
-drone.land()
+with Drone() as drone:  # connects to the running Squadrone application
+    drone.takeoff()
+    drone.fly(fb=70, seconds=3.0)  # stick input: forward at 70% for 3 s
+    drone.go(100, 0, 50, speed=60)  # glide 1 m forward and 0.5 m up
+    frame = drone.frame()  # BGR image for your gate detector
+    drone.land()
 ```
 
 Run this file normally from the IDE. Squadrone keeps the video, scoring and
@@ -262,7 +282,8 @@ The release page describes the layout and the label format in full.
   Keypoints formats. Fit the keypoints to `gate_spec.json` (the gate's 3D
   points) with PnP to get range, sideways offset and yaw.
 - `camera/tello_camera.json` is the Tello's measured camera calibration. Use it
-  for range: the nominal field of view gives ranges about 30% short.
+  for range: the nominal field of view gives ranges about 30% short. See
+  [Camera calibration](#camera-calibration) for the values.
 - Left and right are as the camera sees the ring. If you flip images to
   augment, reorder the keypoints with the `flip_idx` in `data.yaml`, or every
   label is silently wrong.
@@ -271,6 +292,31 @@ The release page describes the layout and the label format in full.
 
 To collect pictures of your own, `examples/03_pilot.py` records the raw camera
 while you fly.
+
+### Camera calibration
+
+The Tello's camera was calibrated with a ChArUco board at 960×720: 48 views,
+0.28 px RMS reprojection error. The result ships with this app as
+[`comp2/vision/tello_camera.json`](comp2/vision/tello_camera.json), with the
+full report beside it. The simulator renders through the same focal length and
+principal point, so geometry worked out in the simulator carries over to the
+real camera.
+
+| Value           | In the file                  | At 960×720                   |
+| --------------- | ---------------------------- | ---------------------------- |
+| Focal length    | `focal_per_width` 0.9795     | fx ≈ fy ≈ 940.4 px           |
+| Principal point | `cx_fraction`, `cy_fraction` | (457.6, 331.1) px            |
+| Field of view   |                              | 54.1° × 41.9°                |
+| Distortion      | `distortion`                 | k1 k2 p1 p2 k3, OpenCV order |
+
+All values are fractions of the frame width (cx, focal) or height (cy), so they
+hold for the simulator's 640×480 frames too. Multiply by your frame's size to
+get an OpenCV camera matrix. The distortion is small, at most about 12 px in
+the corners of a 960×720 frame. The simulator leaves it out, so if you undistort
+real frames, do not undistort the simulator's.
+
+DJI's published "82.6°" field of view is the diagonal, and it is far wider than
+the real camera's 65°. Code that assumes it underestimates ranges by about 30%.
 
 ## Tracks
 
@@ -283,16 +329,17 @@ JSON file in `comp2/tracks/` and restart:
 {
 	"name": "My track",
 	"difficulty": 1.2,
-	"arena": { "width_m": 4.0, "depth_m": 6.0, "height_m": 3.0 },
-	"takeoff": [2.0, 0.6],
-	"landing": [2.0, 5.5],
+	"arena": { "width_m": 6.0, "depth_m": 4.0, "height_m": 3.0 },
+	"takeoff": [1.0, 2.0],
+	"takeoff_heading_deg": 90,
+	"landing": [5.0, 2.0],
 	"t_ref_s": 30.0,
 	"gates": [
 		{
-			"x": 2.0,
+			"x": 3.0,
 			"y": 2.0,
 			"z": 1.5,
-			"yaw_deg": 0,
+			"yaw_deg": 90,
 			"diameter_m": 0.7,
 			"opening_diameter_m": 0.5
 		}
@@ -300,9 +347,21 @@ JSON file in `comp2/tracks/` and restart:
 }
 ```
 
-`yaw_deg` is the direction you must fly through the gate (0 = north / +y).
+This one takes off at the west end facing east, flies through a single gate in
+the middle of the cage and lands at the east end. The coordinates are the same
+as the official tracks':
+
+- **x** runs along the cage's 6 m length (`width_m`), from west (0) to east;
+  **y** across its 4 m (`depth_m`), from south (0) to north; **z** is height
+  above the floor. All in metres.
+- **Headings** are compass degrees, clockwise seen from above: 0 = north (+y),
+  90 = east (+x), 180 = south, 270 = west (−x). `takeoff_heading_deg` is the
+  way the drone faces on the pad (default 0), and a gate's `yaw_deg` is the
+  direction you must fly through it.
+
 `diameter_m` is the ring's outer size and `opening_diameter_m` its clear
-opening (defaults 0.70 and 0.50); only the opening is scored.
+opening (defaults 0.70 and 0.50); a pass is measured against the opening. A `weights`
+object (`smoothness`, `accuracy`, `time`) overrides the default 0.4/0.3/0.3.
 
 ## Flying the real Tello
 
@@ -313,6 +372,12 @@ opening (defaults 0.70 and 0.50); only the opening is scored.
 Note the real drone has no arena-absolute position, so the 3D view, plan and
 scoring panels are simulator-only; on hardware you fly by camera and by the
 published track measurements.
+
+While your computer is joined to the Tello's Wi-Fi, that is usually its only
+network, and the Tello gives no internet access. If your program calls an
+online service, such as a hosted LLM, give the computer a second connection
+(Ethernet, a USB Wi-Fi adapter or USB tethering to a phone) and test it before
+the event.
 
 ## Development
 

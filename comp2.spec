@@ -3,6 +3,9 @@ a = Analysis(
     ["comp2/launcher.py"],
     datas=[("comp2/frontend", "comp2/frontend"),
            ("comp2/tracks", "comp2/tracks"),
+           # the measured Tello camera the simulator renders through
+           ("comp2/vision/tello_camera.json", "comp2/vision"),
+           ("comp2/vision/tello_camera.report.json", "comp2/vision"),
            # installable into a contestant's own IDE interpreter
            ("client", "client"),
            # team starter programs, run from the contestant's IDE

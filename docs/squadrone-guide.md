@@ -49,8 +49,15 @@ gate detector: your program learns about the world only through the camera
 
 ## 2. Install
 
-The client needs Python 3.11 or newer. Install it into the **same interpreter
-your IDE uses to run your code**:
+**If you used the one-step setup** and selected the interpreter it printed
+(`Drone-Competition-2\venv\Scripts\python.exe` or
+`Drone-Competition-2/venv/bin/python`), there is nothing to install: that
+interpreter already has the client and OpenCV, and every start from the
+launcher keeps the client up to date.
+
+**To use an interpreter of your own** (your project's venv, conda, …), install
+the client into the **same interpreter your IDE uses to run your code**. The
+application itself needs Python 3.13 or newer, but the client only needs 3.11:
 
 ```powershell
 python -m pip install .\client          # from the repository root
@@ -67,8 +74,9 @@ python -c "from squadrone import Drone; print(Drone)"
 ```
 
 If you edit the library itself, install in editable mode with
-`python -m pip install -e .\client`. Whenever you pull a newer version of this
-repository, install `client/` again: some features, such as
+`python -m pip install -e .\client`. Whenever COMP2 updates, install `client/`
+into your own interpreter again (an editable install follows the code by
+itself): some features, such as
 `frame(fresh=True)` and `show_detections()`, only exist in newer client
 versions.
 
@@ -224,14 +232,15 @@ pause safe.
 
 | Style | Calls | Best for | Trade-off |
 | --- | --- | --- | --- |
-| Discrete | `forward`, `left`, `up`, `turn_right`, … | First laps, learning the geometry | Stops between commands, so a poor smoothness score |
+| Discrete | `forward`, `left`, `up`, `turn_right`, … | First laps, learning the geometry | Stops between commands: slower, and never a round flight |
 | Point-to-point | `go`, `curve` | Clean diagonals and arcs through a known gate | Open loop; the drone cannot react while it moves |
 | Velocity | `fly(lr, fb, ud, yaw, seconds=…)` | Racing lines and any closed-loop control | You must keep re-issuing it; needs tuning |
 
-Smoothness is scored on the jerk of your whole flown path, so continuous
-control scores better than stop-and-go moves. A good progression is to get a
-lap working with discrete commands, then replace stretches of it with `go`,
-`curve` and finally `fly`.
+Stopping between moves costs time and breaks up the flight, so continuous
+control gives a faster, rounder lap. The simulator's practice score card shows
+a smoothness figure, the jerk of your whole flown path, as a rough guide to how
+round a flight is. A good progression is to get a lap working with discrete
+commands, then replace stretches of it with `go`, `curve` and finally `fly`.
 
 ### `fly()` always needs `seconds`
 
@@ -269,9 +278,16 @@ frame = drone.frame()  # latest image, BGR, or None
 frame = drone.frame(fresh=True, timeout=0.8)  # wait for a NEW image
 ```
 
-The result is a NumPy `uint8` array of shape `(480, 640, 3)` in **BGR** order,
-ready for OpenCV. The platform ships no gate detector. What you do with the
-image is your competition entry.
+The result is a NumPy `uint8` array in **BGR** order, ready for OpenCV. The
+platform ships no gate detector. What you do with the image is your
+competition entry.
+
+**The size depends on the source.** The simulator gives `(480, 640, 3)`; the
+real Tello gives its full `(720, 960, 3)` stream, the same size as the
+[gate dataset](../README.md#gate-dataset). Both are 4:3. Read the size from
+`frame.shape` rather than writing 640 or 480 into your code, and express
+thresholds as fractions of the frame (a minimum area, a centre offset, a focal
+length) so a detector tuned in the simulator keeps working on hardware.
 
 - Plain `frame()` returns the most recent image immediately. If your program
   loops quickly, that may be the same image you already processed.
@@ -284,8 +300,13 @@ image is your competition entry.
 The image is the raw sensor view. Anything Squadrone draws on its own display,
 including the cockpit's minimap and your `show_detections()` outlines, is never
 present in the frames you receive. In the simulator, frames come through the
-real Tello's camera model, so a detector tuned there is a fair starting point
-for the cage, although real lighting and netting will still need re-tuning.
+real Tello's calibrated camera: the same focal length and principal point,
+from [`comp2/vision/tello_camera.json`](../comp2/vision/tello_camera.json)
+(see the README's [Camera calibration](../README.md#camera-calibration)). Range
+and bearing worked out on simulator frames therefore carry over, and a
+detector tuned there is a fair starting point for the cage. Real lighting and
+netting will still need re-tuning, and the venue's lighting is not guaranteed,
+so test on dim frames too.
 
 `examples/03_pilot.py` reads frames in a thread of its own while you fly the drone
 by keyboard, and records them to MP4 and PNG. It is a quick way to collect
@@ -335,7 +356,8 @@ def find_gate(frame):
     mask = cv2.inRange(hsv, *ORANGE[0]) | cv2.inRange(hsv, *ORANGE[1])
     mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    arcs = [c for c in contours if cv2.contourArea(c) > 300]  # ignore specks
+    min_area = 0.001 * frame.shape[0] * frame.shape[1]  # specks: 300 px at 640x480
+    arcs = [c for c in contours if cv2.contourArea(c) > min_area]
     if not arcs:
         return None
     return cv2.boundingRect(np.vstack(arcs))
@@ -429,9 +451,10 @@ The program is identical. The differences are in what the world gives back:
 | Selected by | operator, in the browser header | operator, after joining the `TELLO-…` Wi-Fi |
 | Arena, trail, race panel, score | shown | not available (no absolute position) |
 | `height` | modelled height above the floor | the SDK's reported height; stale or missing telemetry raises an error instead of returning 0 |
-| Mission pads | pad 1 at the takeoff spot, limited visibility | supported hardware only; otherwise raises `DroneError` |
+| Mission pads | pad 1 at the takeoff spot, limited visibility | supported hardware only; otherwise raises `DroneError`. **The competition cage has none.** |
 | `flip()` | visual only | refused when the battery is low (around 50%) or there is no clearance |
-| Repeatability | repeatable unless `--noise` is set | varies with battery, air and floor |
+| Camera `frame()` | `(480, 640, 3)` | `(720, 960, 3)` |
+| Repeatability | drifts like a real Tello by default (`typical`); `ideal` flies exactly as commanded | varies with battery, air and floor |
 
 Rehearse on the simulator, then re-check everything that depends on distance,
 speed and height on the real aircraft with generous clearance. The steps to
@@ -457,9 +480,14 @@ per-operation behaviour on hardware is in the
   runs, note the score card after each lap.
 - **Try other tracks.** Start with `python -m comp2 --track circuit2_figure_eight`
   (or `circuit3_double_figure_eight`), or pick one in the browser while no
-  program is connected. Add `--noise 0.05` to the application to make movement
-  drift like real hardware; a program that survives noise is more likely to
-  survive the cage.
+  program is connected.
+- **Choose the flight accuracy.** The simulator drifts like a real Tello
+  indoors by default (`typical`), so the same program lands in a slightly
+  different place each run. That is deliberate: a program that copes with it
+  is more likely to survive the cage. To compare two versions of your code
+  without that scatter, switch **Flight accuracy** in the Arena panel to
+  `ideal`, or start with `python -m comp2 --flight ideal`; `good` and `poor`
+  make it gentler or harsher. Changing it returns the drone to the pad.
 - **Simulate without the cockpit.** For tests that must not need the browser,
   `from comp2.api import Drone` with `Drone(sim=True)` runs a standalone
   simulator in your process (no video window, no emergency stop). This is for
@@ -517,7 +545,7 @@ drone.go(x_cm=0, y_cm=0, z_cm=0, speed=50)  # x fwd, y LEFT, z up
 drone.curve(x1, y1, z1, x2, y2, z2, speed=50)
 
 # senses
-drone.frame(timeout=None, fresh=False)  # BGR ndarray (480, 640, 3) or None
+drone.frame(timeout=None, fresh=False)  # BGR or None; sim 640x480, Tello 960x720
 drone.show_detections(detections, size=None)
 drone.battery  # property, int 0-100
 drone.height  # property, float cm
