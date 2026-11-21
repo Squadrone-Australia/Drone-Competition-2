@@ -2,12 +2,26 @@
 
 [![CI](https://github.com/Squadrone-Australia/Drone-Competition-2/actions/workflows/ci.yml/badge.svg)](https://github.com/Squadrone-Australia/Drone-Competition-2/actions/workflows/ci.yml)
 
+[![Download the latest gate dataset](https://img.shields.io/github/v/release/Squadrone-Australia/Drone-Competition-2?filter=dataset-*&style=for-the-badge&label=Download%20gate%20dataset&color=e8590c)](https://github.com/Squadrone-Australia/Drone-Competition-2/releases/latest)
+
+> **Always use the latest gate dataset.** The button above shows the newest
+> version and opens its release page. Older versions stay online, but are
+> missing data.
+
 The practice and development platform for the ICONIP 2026 autonomous drone
 racing competition: a Ryze Tello must fly itself through a series of
-ring gates — Squadrone fabric rings, 0.70 m across the outside around a 0.50 m
-opening, orange top and bottom and black-and-white checkered left and right,
-each standing on the floor on a PVC stand of its own — in a
-6 m × 4 m × 3 m cage.
+ring gates — Squadrone fabric rings, orange top and bottom and
+black-and-white checkered left and right, each standing on the floor on a PVC
+stand of its own — in a 6 m × 4 m × 3 m cage. The competition uses two gate
+types:
+
+- **Gate A**: 0.70 m across the outside around a 0.50 m opening.
+- **Gate B**: about 0.77 m across the outside (including a 2 cm black binding)
+  around an opening of about 0.58 m, with a lighter, more yellow orange and a
+  printed ArUco marker hanging under it.
+
+The simulator draws gate A by default; a track can set each gate's size (see
+[Tracks](#tracks)).
 
 This app gives every team the same flight environment:
 
@@ -22,7 +36,7 @@ This app gives every team the same flight environment:
 The platform ships **no gate detector** — vision-based gate perception is your
 team's core task. `drone.frame()` hands you the raw BGR image; what you do
 with it is the competition. To train or test a detector, start from the
-[gate dataset](#gate-dataset): labelled pictures of the gate from a real Tello.
+[gate dataset](#gate-dataset): pictures of both gate types from a real Tello.
 
 ## Quick start
 
@@ -211,7 +225,7 @@ Do not tune your program to its exact numbers.
 | Metric     | How the simulator measures it                                                                                        |
 | ---------- | -------------------------------------------------------------------------------------------------------------------- |
 | Smoothness | RMS jerk over the whole flown path (sampled at 30 Hz)                                                                |
-| Accuracy   | offset from each gate's centre at the moment of crossing: 1 dead centre, 0 at the rim of the 0.50 m circular opening |
+| Accuracy   | offset from each gate's centre at the moment of crossing: 1 dead centre, 0 at the rim of the gate's circular opening |
 | Time       | first takeoff to final landing on the finish pad                                                                     |
 
 `total = difficulty × 100 × (0.4·smoothness + 0.3·accuracy + 0.3·time)` —
@@ -269,17 +283,24 @@ client connects to `ws://127.0.0.1:8765/ws` unless you pass a URL or set
 
 ## Gate dataset
 
-Real Tello camera frames of the competition's ring gate, labelled for gate
-detection and pose estimation. Download `iconip2026-gates-v1.0.zip` (about
-240 MB) from the
-[dataset-v1.0 release](https://github.com/Squadrone-Australia/Drone-Competition-2/releases/tag/dataset-v1.0).
-The release page describes the layout and the label format in full.
+Real Tello camera frames of the competition's ring gates, for gate detection
+and pose estimation. **Download the
+[latest dataset release](https://github.com/Squadrone-Australia/Drone-Competition-2/releases/latest)**
+(currently v1.2, `iconip2026-gates-v1.2.zip`, about 440 MB). The release page
+lists every version's changes and describes the layout and the label format
+in full; the `README.md` inside the zip is the full datasheet.
 
-- 2,347 frames at 960×720: 1,794 for training, 353 for validation and 200 for
-  testing. 339 of them have no gate in view.
-- Two venues: an indoor room, in good and dim light, and the netted drone cage.
-- Each gate has a bounding box and nine keypoints, in YOLO pose and COCO
-  Keypoints formats. Fit the keypoints to `gate_spec.json` (the gate's 3D
+The competition uses two gate types, and the dataset has both:
+
+- **Gate A**, labelled: 2,347 frames at 960×720: 1,794 for training, 353 for
+  validation and 200 for testing. 339 of them have no gate in view. Filmed in
+  an indoor room, in good and dim light, and in the netted drone cage.
+- **Gate B**, unlabelled: 1,262 frames from five settings, indoors and
+  outdoors. Gate B is slightly larger than gate A and has a printed ArUco
+  marker hanging under it; `gate_spec.json` gives its measurements. Labelling
+  these frames, or using them some other way, is part of the task.
+- Each labelled gate has a bounding box and nine keypoints, in YOLO pose and
+  COCO Keypoints formats. Fit the keypoints to `gate_spec.json` (the gate's 3D
   points) with PnP to get range, sideways offset and yaw.
 - `camera/tello_camera.json` is the Tello's measured camera calibration. Use it
   for range: the nominal field of view gives ranges about 30% short. See
@@ -287,8 +308,8 @@ The release page describes the layout and the label format in full.
 - Left and right are as the camera sees the ring. If you flip images to
   augment, reorder the keypoints with the `flip_idx` in `data.yaml`, or every
   label is silently wrong.
-- Seven clips hover at tape-measured distances from 0.5 to 3.0 m, so you can
-  check your range estimate.
+- Seven gate A clips hover at tape-measured distances from 0.5 to 3.0 m, so
+  you can check your range estimate.
 
 To collect pictures of your own, `examples/03_pilot.py` records the raw camera
 while you fly.
